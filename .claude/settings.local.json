@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo check:*)",
+      "Bash(cargo build:*)",
+      "Bash(find:*)",
+      "Bash(cargo test:*)",
+      "Bash(cargo:*)",
+      "Bash(rustc:*)",
+      "Bash(timeout:*)",
+      "Bash(cat:*)",
+      "Bash(awk:*)",
+      "Bash(xargs:*)",
+      "Bash(git add:*)",
+      "Read(//Users/bytedance/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ratatui-0.29.0/src/widgets/list/**)",
+      "WebSearch",
+      "Bash(./regex_test)",
+      "Bash(chmod:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
