@@ -64,17 +64,64 @@ impl LogItem {
 
         let base_format = match detail_level {
             0 => content,
-            1 => format!("[{}] {}", self.time, content),
-            2 => format!("[{}] [{}] {}", self.time, self.level, content),
-            3 => format!(
-                "[{}] [{}] [{}] {}",
-                self.time, self.level, self.origin, content
-            ),
-            4 => format!(
-                "[{}] [{}] [{}] [{}] {}",
-                self.time, self.level, self.origin, self.tag, content
-            ),
-            _ => format!("[{}] {}", self.time, content), // default to level 1
+            1 => {
+                let mut parts = Vec::new();
+                if !self.time.is_empty() {
+                    parts.push(format!("[{}]", self.time));
+                }
+                parts.push(content);
+                parts.join(" ")
+            }
+            2 => {
+                let mut parts = Vec::new();
+                if !self.time.is_empty() {
+                    parts.push(format!("[{}]", self.time));
+                }
+                if !self.level.is_empty() {
+                    parts.push(format!("[{}]", self.level));
+                }
+                parts.push(content);
+                parts.join(" ")
+            }
+            3 => {
+                let mut parts = Vec::new();
+                if !self.time.is_empty() {
+                    parts.push(format!("[{}]", self.time));
+                }
+                if !self.level.is_empty() {
+                    parts.push(format!("[{}]", self.level));
+                }
+                if !self.origin.is_empty() {
+                    parts.push(format!("[{}]", self.origin));
+                }
+                parts.push(content);
+                parts.join(" ")
+            }
+            4 => {
+                let mut parts = Vec::new();
+                if !self.time.is_empty() {
+                    parts.push(format!("[{}]", self.time));
+                }
+                if !self.level.is_empty() {
+                    parts.push(format!("[{}]", self.level));
+                }
+                if !self.origin.is_empty() {
+                    parts.push(format!("[{}]", self.origin));
+                }
+                if !self.tag.is_empty() {
+                    parts.push(format!("[{}]", self.tag));
+                }
+                parts.push(content);
+                parts.join(" ")
+            }
+            _ => {
+                let mut parts = Vec::new();
+                if !self.time.is_empty() {
+                    parts.push(format!("[{}]", self.time));
+                }
+                parts.push(content);
+                parts.join(" ")
+            }
         };
 
         return format!("{}{}", count_prefix, base_format);

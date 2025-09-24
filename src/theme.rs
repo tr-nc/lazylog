@@ -23,7 +23,7 @@ pub const INFO_STYLE: Style = Style::new().fg(select_color_from_palette(
 ));
 pub const WARN_STYLE: Style = Style::new().fg(select_color_from_palette(
     PaletteIdx::C400,
-    palette::tailwind::YELLOW,
+    palette::tailwind::ORANGE,
 ));
 pub const ERROR_STYLE: Style = Style::new().fg(select_color_from_palette(
     PaletteIdx::C400,

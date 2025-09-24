@@ -33,7 +33,7 @@ impl AppBlock {
     }
 
     pub fn set_title(mut self, title: impl Into<String>) -> Self {
-        self.title = Some(title.into());
+        self.update_title(title);
         self
     }
 
@@ -43,7 +43,7 @@ impl AppBlock {
     }
 
     pub fn update_title(&mut self, title: impl Into<String>) {
-        self.title = Some(title.into());
+        self.title = Some(format!("─{}", title.into()));
     }
 
     #[allow(dead_code)]
@@ -53,7 +53,7 @@ impl AppBlock {
 
     pub fn build(&self, focused: bool) -> Block<'_> {
         let mut block = Block::default()
-            .borders(Borders::TOP | Borders::LEFT)
+            .borders(Borders::TOP | Borders::LEFT | Borders::BOTTOM)
             .border_type(BorderType::Rounded);
 
         if focused {
@@ -66,14 +66,14 @@ impl AppBlock {
 
         if let Some(title) = &self.title {
             let title_style = if focused {
-                Style::new().bold().underlined()
+                Style::new().bold()
             } else {
                 Style::new()
             };
             block = block.title(
                 ratatui::prelude::Line::from(title.as_str())
                     .style(title_style)
-                    .centered(),
+                    .left_aligned(),
             );
         }
 
@@ -129,7 +129,7 @@ impl AppBlock {
             .symbols(scrollbar::VERTICAL)
             .style(Style::default().fg(color))
             .begin_symbol(Some("╮"))
-            .end_symbol(None)
+            .end_symbol(Some("╯"))
             .track_symbol(Some("│"))
     }
 

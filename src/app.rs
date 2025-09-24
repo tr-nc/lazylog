@@ -109,12 +109,12 @@ impl App {
             detail_level: 1,
             debug_logs,
             focused_block_id: None,
-            logs_block: AppBlock::new().set_title(format!("LOGS")),
+            logs_block: AppBlock::new().set_title(format!("[1]─Logs")),
             details_block: AppBlock::new()
-                .set_title("LOG DETAILS")
+                .set_title("[2]─Details")
                 .set_padding(Padding::horizontal(1)),
             debug_block: AppBlock::new()
-                .set_title("DEBUG LOGS")
+                .set_title("[3]─Debug Logs")
                 .set_padding(Padding::horizontal(1)),
             prev_selected_log_id: None,
             selected_log_uuid: None,
@@ -442,13 +442,6 @@ impl App {
         }
     }
 
-    fn render_header(&self, area: Rect, buf: &mut Buffer) -> Result<()> {
-        let autoscroll_status = if self.autoscroll { "ON" } else { "OFF" };
-        let title = format!("Lazylog | Autoscroll {}", autoscroll_status);
-        Paragraph::new(title).bold().centered().render(area, buf);
-        Ok(())
-    }
-
     fn render_footer(&self, area: Rect, buf: &mut Buffer) -> Result<()> {
         let help_text = if self.filter_mode {
             format!(
@@ -479,19 +472,17 @@ impl App {
 
         // Get and update the LOGS block (title, mouse focus)
         let title = if self.log_file_path.exists() {
-            format!(
-                "LOGS | Detail Level: {} | {}",
-                self.detail_level,
-                self.log_file_path
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-            )
+            let mut display_content = format!(
+                "[1]─Logs | {} / {}",
+                self.displaying_logs.items.len(),
+                self.raw_logs.len()
+            );
+            if self.autoscroll {
+                display_content += " | Autoscrolling";
+            }
+            display_content
         } else {
-            format!(
-                "LOGS | Detail Level: {} | Waiting for log files...",
-                self.detail_level
-            )
+            format!("[1]─Logs | Waiting for log files...")
         };
         self.logs_block.update_title(title);
         let logs_block_id = self.logs_block.id();
@@ -569,7 +560,7 @@ impl App {
             let detail_text = log_item.get_preview_text(self.detail_level);
             let level_style = match log_item.level.as_str() {
                 "ERROR" => theme::ERROR_STYLE,
-                "WARN" => theme::WARN_STYLE,
+                "WARNING" => theme::WARN_STYLE,
                 "INFO" => theme::INFO_STYLE,
                 "DEBUG" => theme::DEBUG_STYLE,
                 _ => Style::default().fg(theme::TEXT_FG_COLOR),
@@ -578,9 +569,9 @@ impl App {
             // Selection highlighting uses the same (reversed) indices (selected_index compares to i)
             let is_selected = selected_index == Some(i);
             let display_text = if is_selected {
-                format!(">{}", detail_text)
+                format!(" → {}", detail_text)
             } else {
-                format!(" {}", detail_text)
+                format!("   {}", detail_text)
             };
 
             let final_style = if is_selected {
@@ -764,7 +755,7 @@ impl App {
                     .map(|log_entry| {
                         let style = if log_entry.contains("ERROR") {
                             theme::ERROR_STYLE
-                        } else if log_entry.contains("WARN") {
+                        } else if log_entry.contains("WARNING") {
                             theme::WARN_STYLE
                         } else if log_entry.contains("DEBUG") {
                             theme::DEBUG_STYLE
@@ -1203,21 +1194,18 @@ impl App {
 
 impl Widget for &mut App {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let [header_area, main_area, debug_area, footer_area] = Layout::vertical([
-            Constraint::Length(1),
+        let [main, debug_area, footer_area] = Layout::vertical([
             Constraint::Fill(1),
             Constraint::Length(6),
             Constraint::Length(1),
         ])
         .areas(area);
 
-        let [list_area, item_area] =
-            Layout::vertical([Constraint::Percentage(60), Constraint::Percentage(40)])
-                .areas(main_area);
+        let [logs_area, details_area] =
+            Layout::vertical([Constraint::Percentage(60), Constraint::Percentage(40)]).areas(main);
 
-        self.render_header(header_area, buf).unwrap();
-        self.render_logs(list_area, buf).unwrap();
-        self.render_details(item_area, buf).unwrap();
+        self.render_logs(logs_area, buf).unwrap();
+        self.render_details(details_area, buf).unwrap();
         self.render_debug_logs(debug_area, buf).unwrap();
         self.render_footer(footer_area, buf).unwrap();
 
