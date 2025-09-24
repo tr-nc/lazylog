@@ -49,17 +49,20 @@ struct App {
     last_len: u64,
     prev_meta: Option<metadata::MetaSnap>,
     autoscroll: bool,
-    filter_mode: bool,                    // Whether we're in filter input mode
-    filter_input: String,                 // Current filter input text
-    detail_level: u8,                     // Detail level for log display (0-4, default 1)
-    debug_logs: Arc<Mutex<Vec<String>>>,  // Debug log messages for UI display
-    focused_block_id: Option<uuid::Uuid>, // Currently focused block ID
+    filter_mode: bool,                         // Whether we're in filter input mode
+    filter_input: String,                      // Current filter input text
+    detail_level: u8,                          // Detail level for log display (0-4, default 1)
+    debug_logs: Arc<Mutex<Vec<String>>>,       // Debug log messages for UI display
+    hard_focused_block_id: Option<uuid::Uuid>, // Hard focus: set by clicking, persists until another click
+    soft_focused_block_id: Option<uuid::Uuid>, // Soft focus: set by hovering, changes with mouse movement
     logs_block: AppBlock,
     details_block: AppBlock,
     debug_block: AppBlock,
     prev_selected_log_id: Option<uuid::Uuid>, // Track previous selected log item ID for details reset
     selected_log_uuid: Option<uuid::Uuid>,    // Track currently selected log item UUID
     last_logs_area: Option<Rect>, // Store the last rendered logs area for selection visibility
+    last_details_area: Option<Rect>, // Store the last rendered details area
+    last_debug_area: Option<Rect>, // Store the last rendered debug area
 
     event: Option<MouseEvent>,
 }
@@ -108,7 +111,8 @@ impl App {
             filter_input: String::new(),
             detail_level: 1,
             debug_logs,
-            focused_block_id: None,
+            hard_focused_block_id: None,
+            soft_focused_block_id: None,
             logs_block: AppBlock::new().set_title(format!("[1]─Logs")),
             details_block: AppBlock::new()
                 .set_title("[2]─Details")
@@ -119,13 +123,15 @@ impl App {
             prev_selected_log_id: None,
             selected_log_uuid: None,
             last_logs_area: None,
+            last_details_area: None,
+            last_debug_area: None,
 
             event: None,
         }
     }
 
     fn run(mut self, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
-        self.set_focused_block(self.logs_block.id());
+        self.set_hard_focused_block(self.logs_block.id());
 
         let poll_interval = Duration::from_millis(100);
 
@@ -159,30 +165,32 @@ impl App {
                 Event::Mouse(mouse) => {
                     match mouse.kind {
                         MouseEventKind::ScrollDown => {
-                            if self.is_log_block_focused()? {
-                                self.handle_logs_view_scrolling(true)?;
-                            }
-                            if self.is_details_block_focused()? {
-                                self.handle_details_block_scrolling(true)?;
-                            }
-                            if self.is_debug_block_focused()? {
-                                self.handle_debug_logs_scrolling(true)?;
+                            // Scroll whatever block the mouse is currently over
+                            if let Some(block_under_mouse) = self.get_block_under_mouse(&mouse) {
+                                if block_under_mouse == self.logs_block.id() {
+                                    self.handle_logs_view_scrolling(true)?;
+                                } else if block_under_mouse == self.details_block.id() {
+                                    self.handle_details_block_scrolling(true)?;
+                                } else if block_under_mouse == self.debug_block.id() {
+                                    self.handle_debug_logs_scrolling(true)?;
+                                }
                             }
                         }
                         MouseEventKind::ScrollUp => {
-                            if self.is_log_block_focused()? {
-                                self.handle_logs_view_scrolling(false)?;
-                            }
-                            if self.is_details_block_focused()? {
-                                self.handle_details_block_scrolling(false)?;
-                            }
-                            if self.is_debug_block_focused()? {
-                                self.handle_debug_logs_scrolling(false)?;
+                            // Scroll whatever block the mouse is currently over
+                            if let Some(block_under_mouse) = self.get_block_under_mouse(&mouse) {
+                                if block_under_mouse == self.logs_block.id() {
+                                    self.handle_logs_view_scrolling(false)?;
+                                } else if block_under_mouse == self.details_block.id() {
+                                    self.handle_details_block_scrolling(false)?;
+                                } else if block_under_mouse == self.debug_block.id() {
+                                    self.handle_debug_logs_scrolling(false)?;
+                                }
                             }
                         }
                         MouseEventKind::Moved => {
-                            // Mouse moved - the render methods will handle hover focus
-                            // Just store the event so blocks can check if mouse is hovering
+                            // Mouse moved events are handled in individual block render methods
+                            // for more precise hover detection
                         }
                         _ => {}
                     }
@@ -487,28 +495,33 @@ impl App {
         self.logs_block.update_title(title);
         let logs_block_id = self.logs_block.id();
 
-        let (should_focus, clicked_row) = if let Some(event) = self.event {
-            let was_clicked =
-                self.logs_block
-                    .handle_mouse_event(&event, content_area, self.event.as_ref());
+        let (should_hard_focus, clicked_row) = if let Some(event) = self.event {
+            // Check for click events (hard focus)
             let is_left_click = event.kind
                 == crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left);
-
             let inner_area = self.logs_block.build(false).inner(content_area);
             let is_within_bounds =
                 inner_area.contains(ratatui::layout::Position::new(event.column, event.row));
-            let click_row = if is_left_click && is_within_bounds {
+
+            let should_hard_focus = is_left_click && is_within_bounds;
+            let click_row = if should_hard_focus {
                 Some(event.row)
             } else {
                 None
             };
-            (was_clicked, click_row)
+
+            // Handle soft focus (hover)
+            if event.kind == crossterm::event::MouseEventKind::Moved && is_within_bounds {
+                self.set_soft_focused_block(logs_block_id);
+            }
+
+            (should_hard_focus, click_row)
         } else {
             (false, None)
         };
 
-        if should_focus {
-            self.set_focused_block(logs_block_id);
+        if should_hard_focus {
+            self.set_hard_focused_block(logs_block_id);
         }
 
         // Use the displaying_logs which contains either filtered or all logs
@@ -626,20 +639,32 @@ impl App {
     }
 
     fn render_details(&mut self, area: Rect, buf: &mut Buffer) -> Result<()> {
+        // Store the area for mouse detection
+        self.last_details_area = Some(area);
         // Get the DETAILS block ID and check if focused
         let details_block_id = self.details_block.id();
-        let is_focused = self.focused_block_id == Some(details_block_id);
+        let is_focused = self.get_display_focused_block() == Some(details_block_id);
 
-        // Handle click and set focus
-        let should_focus = if let Some(event) = self.event {
-            self.details_block
-                .handle_mouse_event(&event, area, self.event.as_ref())
+        // Handle click for hard focus and hover for soft focus
+        let should_hard_focus = if let Some(event) = self.event {
+            let is_left_click = event.kind
+                == crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left);
+            let inner_area = self.details_block.build(false).inner(area);
+            let is_within_bounds =
+                inner_area.contains(ratatui::layout::Position::new(event.column, event.row));
+
+            // Handle soft focus (hover)
+            if event.kind == crossterm::event::MouseEventKind::Moved && is_within_bounds {
+                self.set_soft_focused_block(details_block_id);
+            }
+
+            is_left_click && is_within_bounds
         } else {
             false
         };
 
-        if should_focus {
-            self.set_focused_block(details_block_id);
+        if should_hard_focus {
+            self.set_hard_focused_block(details_block_id);
         }
 
         // Create a horizontal layout: main content area + scrollbar area
@@ -718,20 +743,32 @@ impl App {
     }
 
     fn render_debug_logs(&mut self, area: Rect, buf: &mut Buffer) -> Result<()> {
+        // Store the area for mouse detection
+        self.last_debug_area = Some(area);
         // Get the DEBUG block ID and check if focused
         let debug_block_id = self.debug_block.id();
-        let is_focused = self.focused_block_id == Some(debug_block_id);
+        let is_focused = self.get_display_focused_block() == Some(debug_block_id);
 
-        // Handle click and set focus
-        let should_focus = if let Some(event) = self.event {
-            self.debug_block
-                .handle_mouse_event(&event, area, self.event.as_ref())
+        // Handle click for hard focus and hover for soft focus
+        let should_hard_focus = if let Some(event) = self.event {
+            let is_left_click = event.kind
+                == crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left);
+            let inner_area = self.debug_block.build(false).inner(area);
+            let is_within_bounds =
+                inner_area.contains(ratatui::layout::Position::new(event.column, event.row));
+
+            // Handle soft focus (hover)
+            if event.kind == crossterm::event::MouseEventKind::Moved && is_within_bounds {
+                self.set_soft_focused_block(debug_block_id);
+            }
+
+            is_left_click && is_within_bounds
         } else {
             false
         };
 
-        if should_focus {
-            self.set_focused_block(debug_block_id);
+        if should_hard_focus {
+            self.set_hard_focused_block(debug_block_id);
         }
 
         // Create a horizontal layout: main content area + scrollbar area
@@ -774,9 +811,6 @@ impl App {
 
         // Update the debug block with lines count and scrollbar state
         self.debug_block.set_lines_count(lines_count);
-        if !is_focused {
-            self.debug_block.set_scroll_position(0);
-        }
         let scroll_position = self.debug_block.get_scroll_position();
         self.debug_block
             .update_scrollbar_state(lines_count, Some(scroll_position));
@@ -803,27 +837,15 @@ impl App {
     }
 
     fn is_log_block_focused(&self) -> Result<bool> {
-        if let Some(focused_id) = self.focused_block_id {
-            Ok(focused_id == self.logs_block.id())
-        } else {
-            Ok(false)
-        }
+        Ok(self.get_display_focused_block() == Some(self.logs_block.id()))
     }
 
     fn is_debug_block_focused(&self) -> Result<bool> {
-        if let Some(focused_id) = self.focused_block_id {
-            Ok(focused_id == self.debug_block.id())
-        } else {
-            Ok(false)
-        }
+        Ok(self.get_display_focused_block() == Some(self.debug_block.id()))
     }
 
     fn is_details_block_focused(&self) -> Result<bool> {
-        if let Some(focused_id) = self.focused_block_id {
-            Ok(focused_id == self.details_block.id())
-        } else {
-            Ok(false)
-        }
+        Ok(self.get_display_focused_block() == Some(self.details_block.id()))
     }
 
     fn ensure_selection_visible(&mut self) -> Result<()> {
@@ -1131,7 +1153,64 @@ impl App {
     }
 
     fn set_focused_block(&mut self, block_id: uuid::Uuid) {
-        self.focused_block_id = Some(block_id);
+        self.hard_focused_block_id = Some(block_id);
+    }
+
+    fn set_hard_focused_block(&mut self, block_id: uuid::Uuid) {
+        self.hard_focused_block_id = Some(block_id);
+    }
+
+    fn set_soft_focused_block(&mut self, block_id: uuid::Uuid) {
+        if self.soft_focused_block_id != Some(block_id) {
+            self.soft_focused_block_id = Some(block_id);
+        }
+    }
+
+    fn clear_soft_focus(&mut self) {
+        self.soft_focused_block_id = None;
+    }
+
+    fn get_display_focused_block(&self) -> Option<uuid::Uuid> {
+        // For display purposes: hard focus takes precedence, fall back to soft focus
+        self.hard_focused_block_id.or(self.soft_focused_block_id)
+    }
+
+    fn is_hard_focused(&self, block_id: uuid::Uuid) -> bool {
+        self.hard_focused_block_id == Some(block_id)
+    }
+
+    fn is_soft_focused(&self, block_id: uuid::Uuid) -> bool {
+        self.soft_focused_block_id == Some(block_id)
+    }
+
+    fn is_mouse_in_area(&self, mouse: &MouseEvent, area: Rect) -> bool {
+        mouse.column >= area.x
+            && mouse.column < area.x + area.width
+            && mouse.row >= area.y
+            && mouse.row < area.y + area.height
+    }
+
+    fn get_block_under_mouse(&self, mouse: &MouseEvent) -> Option<uuid::Uuid> {
+        // Check each block area to see which one contains the mouse
+        if let Some(area) = self.last_logs_area {
+            if self.is_mouse_in_area(mouse, area) {
+                return Some(self.logs_block.id());
+            }
+        }
+
+        if let Some(area) = self.last_details_area {
+            if self.is_mouse_in_area(mouse, area) {
+                return Some(self.details_block.id());
+            }
+        }
+
+        if let Some(area) = self.last_debug_area {
+            if self.is_mouse_in_area(mouse, area) {
+                return Some(self.debug_block.id());
+            }
+        }
+
+        None
     }
 
     fn clear_event(&mut self) {
