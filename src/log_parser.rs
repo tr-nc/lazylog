@@ -62,67 +62,7 @@ impl LogItem {
 
         let content = shorten_content(&self.content);
 
-        let base_format = match detail_level {
-            0 => content,
-            1 => {
-                let mut parts = Vec::new();
-                if !self.time.is_empty() {
-                    parts.push(format!("[{}]", self.time));
-                }
-                parts.push(content);
-                parts.join(" ")
-            }
-            2 => {
-                let mut parts = Vec::new();
-                if !self.time.is_empty() {
-                    parts.push(format!("[{}]", self.time));
-                }
-                if !self.level.is_empty() {
-                    parts.push(format!("[{}]", self.level));
-                }
-                parts.push(content);
-                parts.join(" ")
-            }
-            3 => {
-                let mut parts = Vec::new();
-                if !self.time.is_empty() {
-                    parts.push(format!("[{}]", self.time));
-                }
-                if !self.level.is_empty() {
-                    parts.push(format!("[{}]", self.level));
-                }
-                if !self.origin.is_empty() {
-                    parts.push(format!("[{}]", self.origin));
-                }
-                parts.push(content);
-                parts.join(" ")
-            }
-            4 => {
-                let mut parts = Vec::new();
-                if !self.time.is_empty() {
-                    parts.push(format!("[{}]", self.time));
-                }
-                if !self.level.is_empty() {
-                    parts.push(format!("[{}]", self.level));
-                }
-                if !self.origin.is_empty() {
-                    parts.push(format!("[{}]", self.origin));
-                }
-                if !self.tag.is_empty() {
-                    parts.push(format!("[{}]", self.tag));
-                }
-                parts.push(content);
-                parts.join(" ")
-            }
-            _ => {
-                let mut parts = Vec::new();
-                if !self.time.is_empty() {
-                    parts.push(format!("[{}]", self.time));
-                }
-                parts.push(content);
-                parts.join(" ")
-            }
-        };
+        let base_format = self.format_with_fields(detail_level, &content);
 
         return format!("{}{}", count_prefix, base_format);
 
@@ -138,6 +78,75 @@ impl LogItem {
                 }
             }
             return content.to_string();
+        }
+    }
+
+    fn format_with_fields(&self, detail_level: u8, content: &str) -> String {
+        // Define the field order: time, tag, origin, level
+        let field_order = [
+            ("time", &self.time),
+            ("tag", &self.tag),
+            ("origin", &self.origin),
+            ("level", &self.level),
+        ];
+
+        match detail_level {
+            0 => content.to_string(),
+            1 => {
+                let mut parts = Vec::new();
+                // Add only the first field
+                if let Some((_, field_value)) = field_order.first() {
+                    if !field_value.is_empty() {
+                        parts.push(format!("[{}]", field_value));
+                    }
+                }
+                parts.push(content.to_string());
+                parts.join(" ")
+            }
+            2 => {
+                let mut parts = Vec::new();
+                // Add first two fields
+                for (_, field_value) in field_order.iter().take(2) {
+                    if !field_value.is_empty() {
+                        parts.push(format!("[{}]", field_value));
+                    }
+                }
+                parts.push(content.to_string());
+                parts.join(" ")
+            }
+            3 => {
+                let mut parts = Vec::new();
+                // Add first three fields
+                for (_, field_value) in field_order.iter().take(3) {
+                    if !field_value.is_empty() {
+                        parts.push(format!("[{}]", field_value));
+                    }
+                }
+                parts.push(content.to_string());
+                parts.join(" ")
+            }
+            4 => {
+                let mut parts = Vec::new();
+                // Add all fields
+                for (_, field_value) in field_order.iter() {
+                    if !field_value.is_empty() {
+                        parts.push(format!("[{}]", field_value));
+                    }
+                }
+                parts.push(content.to_string());
+                parts.join(" ")
+            }
+            _ => {
+                // Default to level 1
+                let mut parts = Vec::new();
+                if let Some((_, field_value)) = field_order.first() {
+                    if !field_value.is_empty() {
+                        parts.push(format!("[{}]", field_value));
+                    }
+                }
+                parts.push(content.to_string());
+                parts.join(" ")
+            }
         }
     }
 }
@@ -201,8 +210,8 @@ mod special_events {
                         origin: String::new(),
                         level: String::new(),
                         tag: String::new(),
-                        content: "DYEH PAUSE".to_string(),
-                        raw_content: "DYEH PAUSE".to_string(),
+                        content: "DYEH PAUSED".to_string(),
+                        raw_content: "DYEH PAUSED".to_string(),
                         folded_count: 1,
                     },
                 })
@@ -255,8 +264,8 @@ mod special_events {
                         origin: String::new(),
                         level: String::new(),
                         tag: String::new(),
-                        content: "DYEH RESUME".to_string(),
-                        raw_content: "DYEH RESUME".to_string(),
+                        content: "DYEH RESUMED".to_string(),
+                        raw_content: "DYEH RESUMED".to_string(),
                         folded_count: 1,
                     },
                 })

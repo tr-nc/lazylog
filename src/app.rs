@@ -449,7 +449,7 @@ impl App {
                 self.filter_input
             )
         } else {
-            "jk↑↓: nav | gG: top/bottom | /: filter | []: detail | y: yank | JK: scroll focused | c: clear | f: fold | q: quit"
+            "jk↑↓: prev/next | gG: top/bottom | /: filter | y: copy | c: clear | f: fold | q: quit"
                 .to_string()
         };
         Paragraph::new(help_text).centered().render(area, buf);
@@ -561,8 +561,7 @@ impl App {
             let level_style = match log_item.level.as_str() {
                 "ERROR" => theme::ERROR_STYLE,
                 "WARNING" => theme::WARN_STYLE,
-                "INFO" => theme::INFO_STYLE,
-                "DEBUG" => theme::DEBUG_STYLE,
+                "SYSTEM" => theme::INFO_STYLE,
                 _ => Style::default().fg(theme::TEXT_FG_COLOR),
             };
 
@@ -760,7 +759,7 @@ impl App {
                         } else if log_entry.contains("DEBUG") {
                             theme::DEBUG_STYLE
                         } else {
-                            Style::default().fg(theme::TEXT_FG_COLOR)
+                            theme::INFO_STYLE
                         };
                         Line::styled(log_entry.clone(), style)
                     })
