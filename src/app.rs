@@ -88,7 +88,10 @@ impl App {
         // Try to find the initial log file, but don't fail if none exists
         let log_file_path = match file_finder::find_latest_live_log(&log_dir_path) {
             Ok(path) => {
-                log::debug!("Found initial log file: {}", path.display());
+                log::debug!(
+                    "Found initial log file: {}",
+                    Self::file_path_to_clickable_string(&path)
+                );
                 path
             }
             Err(e) => {
@@ -278,6 +281,11 @@ impl App {
         Ok(())
     }
 
+    fn file_path_to_clickable_string(file_path: &Path) -> String {
+        let clickable_string = file_path.display().to_string().replace(" ", "%20");
+        format!("file://{}", clickable_string)
+    }
+
     fn update_logs(&mut self) -> Result<()> {
         // Skip update if we don't have a valid log file yet
         if !self.log_file_path.exists() {
@@ -307,9 +315,9 @@ impl App {
                     let previous_scroll_pos = Some(self.logs_block.get_scroll_position());
 
                     log::debug!(
-                        "Found {} new log items in file://{}",
+                        "Found {} new log items in {}",
                         new_items.len(),
-                        self.log_file_path.display().to_string().replace(" ", "%20")
+                        Self::file_path_to_clickable_string(&self.log_file_path)
                     );
                     self.raw_logs.extend(new_items);
 
