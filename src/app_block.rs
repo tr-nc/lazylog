@@ -18,6 +18,9 @@ pub struct AppBlock {
     scroll_position: usize,
     scrollbar_state: ScrollbarState,
     padding: Option<Padding>,
+    horizontal_scroll_position: usize,
+    horizontal_scrollbar_state: ScrollbarState,
+    content_width: usize,
 }
 
 impl AppBlock {
@@ -29,6 +32,9 @@ impl AppBlock {
             scroll_position: 0,
             scrollbar_state: ScrollbarState::default(),
             padding: None,
+            horizontal_scroll_position: 0,
+            horizontal_scrollbar_state: ScrollbarState::default(),
+            content_width: 0,
         }
     }
 
@@ -53,7 +59,7 @@ impl AppBlock {
 
     pub fn build(&self, focused: bool) -> Block<'_> {
         let mut block = Block::default()
-            .borders(Borders::TOP | Borders::LEFT | Borders::BOTTOM)
+            .borders(Borders::TOP | Borders::LEFT)
             .border_type(BorderType::Rounded);
 
         if focused {
@@ -117,6 +123,50 @@ impl AppBlock {
         &mut self.scrollbar_state
     }
 
+    pub fn set_horizontal_scroll_position(&mut self, position: usize) {
+        self.horizontal_scroll_position = position;
+    }
+
+    pub fn get_horizontal_scroll_position(&self) -> usize {
+        self.horizontal_scroll_position
+    }
+
+    pub fn set_content_width(&mut self, width: usize) {
+        self.content_width = width;
+    }
+
+    pub fn get_content_width(&self) -> usize {
+        self.content_width
+    }
+
+    pub fn update_horizontal_scrollbar_state(
+        &mut self,
+        content_width: usize,
+        viewport_width: usize,
+    ) {
+        self.content_width = content_width;
+        if content_width > viewport_width {
+            let position = self
+                .horizontal_scroll_position
+                .min(content_width.saturating_sub(viewport_width));
+            self.horizontal_scroll_position = position;
+            self.horizontal_scrollbar_state = self
+                .horizontal_scrollbar_state
+                .content_length(content_width.saturating_sub(viewport_width))
+                .position(position);
+        } else {
+            self.horizontal_scroll_position = 0;
+            self.horizontal_scrollbar_state = self
+                .horizontal_scrollbar_state
+                .content_length(1)
+                .position(0);
+        }
+    }
+
+    pub fn get_horizontal_scrollbar_state(&mut self) -> &mut ScrollbarState {
+        &mut self.horizontal_scrollbar_state
+    }
+
     /// Creates a uniform scrollbar widget with consistent styling
     pub fn create_scrollbar(focused: bool) -> Scrollbar<'static> {
         let color = if focused {
@@ -131,32 +181,46 @@ impl AppBlock {
             .begin_symbol(Some("╮"))
             .end_symbol(Some("╯"))
             .track_symbol(Some("│"))
+            .thumb_symbol("█")
+    }
+
+    /// Creates a horizontal scrollbar widget with consistent styling
+    pub fn create_horizontal_scrollbar(focused: bool) -> Scrollbar<'static> {
+        let color = if focused {
+            palette::tailwind::ZINC.c100
+        } else {
+            palette::tailwind::ZINC.c600
+        };
+
+        Scrollbar::new(ScrollbarOrientation::HorizontalBottom)
+            .symbols(scrollbar::HORIZONTAL)
+            .style(Style::default().fg(color))
+            .begin_symbol(Some("╰"))
+            .end_symbol(Some("─"))
+            .track_symbol(Some("─"))
+            .thumb_symbol("🬋")
+    }
+
+    /// Creates a horizontal scrollbar that only shows track (no thumb)
+    pub fn create_horizontal_track_only(focused: bool) -> Scrollbar<'static> {
+        let color = if focused {
+            palette::tailwind::ZINC.c100
+        } else {
+            palette::tailwind::ZINC.c600
+        };
+
+        Scrollbar::new(ScrollbarOrientation::HorizontalBottom)
+            .symbols(scrollbar::HORIZONTAL)
+            .style(Style::default().fg(color))
+            .begin_symbol(Some("╰"))
+            .end_symbol(Some("─"))
+            .track_symbol(Some("─"))
+            .thumb_symbol("─") // Same as track, so thumb is invisible
     }
 
     /// Returns the content rectangle accounting for block borders
     pub fn get_content_rect(&self, area: Rect, focused: bool) -> Rect {
         self.build(focused).inner(area)
-    }
-
-    pub fn handle_mouse_event(
-        &self,
-        _event: &MouseEvent,
-        area: Rect,
-        mouse_event: Option<&MouseEvent>,
-    ) -> bool {
-        if let Some(mouse_event) = mouse_event {
-            let inner_area = self.build(false).inner(area);
-            let is_hovering = inner_area.contains(ratatui::layout::Position::new(
-                mouse_event.column,
-                mouse_event.row,
-            ));
-
-            // handle hover focus - return true if mouse is hovering over this block
-            if is_hovering && mouse_event.kind == MouseEventKind::Moved {
-                return true;
-            }
-        }
-        false
     }
 }
 

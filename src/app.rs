@@ -1,6 +1,6 @@
 use crate::{
     app_block::AppBlock,
-    content_line_maker::arrange_content_into_lines,
+    content_line_maker::{WrappingMode, calculate_content_width, content_into_lines},
     file_finder,
     log_list::LogList,
     log_parser::{LogItem, process_delta},
@@ -437,7 +437,7 @@ impl App {
                 self.filter_input
             )
         } else {
-            "jk↑↓: prev/next | gG: top/bottom | /: filter | y: copy | c: clear | f: fold | q: quit"
+            "jk↑↓: prev/next | hl←→: h-scroll | Shift+scroll: h-scroll | gG: top/bottom | /: filter | y: copy | c: clear | f: fold | q: quit"
                 .to_string()
         };
         Paragraph::new(help_text).centered().render(area, buf);
@@ -472,10 +472,30 @@ impl App {
         self.logs_block.update_title(title);
         let logs_block_id = self.logs_block.id();
 
+        let selected_index = self.displaying_logs.state.selected();
+        let total_lines = self.displaying_logs.items.len();
+
+        // Calculate content first to determine if horizontal scrollbar is needed
+        let temp_inner_area = self
+            .logs_block
+            .get_content_rect(content_area, is_log_focused);
+        let viewport_width = temp_inner_area.width as usize;
+
+        // Since we're using truncated mode, content will never exceed the viewport width
+        let max_content_width = viewport_width;
+
+        // Always allocate space for horizontal scrollbar (consistent layout)
+        let [main_content_area, horizontal_scrollbar_area] = Layout::vertical([
+            Constraint::Fill(1),   // Main content
+            Constraint::Length(1), // Horizontal scrollbar height
+        ])
+        .margin(0)
+        .areas(content_area);
+
         let (should_hard_focus, clicked_row) = if let Some(event) = self.mouse_event {
             let is_left_click = event.kind
                 == crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left);
-            let inner_area = self.logs_block.build(false).inner(content_area);
+            let inner_area = self.logs_block.build(false).inner(main_content_area);
             let is_within_bounds =
                 inner_area.contains(ratatui::layout::Position::new(event.column, event.row));
 
@@ -499,13 +519,9 @@ impl App {
             self.set_hard_focused_block(logs_block_id);
         }
 
-        let items_to_render = &self.displaying_logs.items;
-        let selected_index = self.displaying_logs.state.selected();
-        let total_lines = items_to_render.len();
-
         let inner_area = self
             .logs_block
-            .get_content_rect(content_area, is_log_focused);
+            .get_content_rect(main_content_area, is_log_focused);
         let visible_height = inner_area.height as usize;
         let content_width = inner_area.width as usize;
 
@@ -534,9 +550,10 @@ impl App {
         let start = scroll_position.min(end);
 
         let mut content_lines = Vec::with_capacity(end.saturating_sub(start));
+
         for i in start..end {
             let item_idx = total_lines.saturating_sub(1).saturating_sub(i);
-            let log_item = &items_to_render[item_idx];
+            let log_item = &self.displaying_logs.items[item_idx];
 
             let detail_text = log_item.get_preview_text(self.detail_level);
             let level_style = match log_item.level.as_str() {
@@ -559,14 +576,31 @@ impl App {
                 level_style
             };
 
+            // Use content_into_lines with Truncated mode to prevent overflow
+            let truncated_lines =
+                content_into_lines(&display_text, content_width as u16, WrappingMode::Truncated);
+
+            // Since truncated mode returns exactly one line, we can safely get the first
+            let truncated_line = truncated_lines
+                .into_iter()
+                .next()
+                .unwrap_or_else(|| Line::from(""));
+
             let padded_text = if is_selected {
-                format!("{:<width$}", display_text, width = content_width)
+                format!(
+                    "{:<width$}",
+                    truncated_line.to_string(),
+                    width = content_width
+                )
             } else {
-                display_text
+                truncated_line.to_string()
             };
 
             content_lines.push(Line::styled(padded_text, final_style));
         }
+
+        // Update horizontal scrollbar state
+        logs_block.update_horizontal_scrollbar_state(max_content_width, content_width);
 
         let logs_block = &mut self.logs_block;
         logs_block.set_lines_count(total_lines);
@@ -574,11 +608,19 @@ impl App {
 
         let block = self.logs_block.build(is_log_focused);
 
+        // Determine if horizontal scrollbar is needed
+        let needs_horizontal_scrollbar = max_content_width > viewport_width;
+        let h_scroll = if needs_horizontal_scrollbar {
+            self.logs_block.get_horizontal_scroll_position() as u16
+        } else {
+            0
+        };
+
         Paragraph::new(content_lines)
             .block(block)
             .fg(theme::TEXT_FG_COLOR)
-            .scroll((0, 0))
-            .render(content_area, buf);
+            .scroll((0, h_scroll))
+            .render(main_content_area, buf);
 
         let scrollbar = AppBlock::create_scrollbar(is_log_focused);
         let logs_block = &mut self.logs_block;
@@ -587,6 +629,19 @@ impl App {
             scrollbar_area,
             buf,
             logs_block.get_scrollbar_state(),
+        );
+
+        // Always render horizontal scrollbar area (track-only when not needed)
+        let horizontal_scrollbar = if needs_horizontal_scrollbar {
+            AppBlock::create_horizontal_scrollbar(is_log_focused)
+        } else {
+            AppBlock::create_horizontal_track_only(is_log_focused)
+        };
+        StatefulWidget::render(
+            horizontal_scrollbar,
+            horizontal_scrollbar_area,
+            buf,
+            logs_block.get_horizontal_scrollbar_state(),
         );
 
         self.update_autoscroll_state();
@@ -623,7 +678,7 @@ impl App {
             self.set_hard_focused_block(details_block_id);
         }
 
-        let [content_area, scrollbar_area] = Layout::horizontal([
+        let [vertical_content_area, scrollbar_area] = Layout::horizontal([
             Constraint::Fill(1),   // Main content takes most space
             Constraint::Length(1), // Scrollbar is 1 character wide
         ])
@@ -632,13 +687,14 @@ impl App {
 
         let (items, state) = (&self.displaying_logs.items, &self.displaying_logs.state);
 
-        let content = if let Some(i) = state.selected() {
+        let (content, max_content_width) = if let Some(i) = state.selected() {
             let reversed_index = items.len().saturating_sub(1).saturating_sub(i);
             let item = &items[reversed_index];
 
             if self.prev_selected_log_id != Some(item.id) {
                 self.prev_selected_log_id = Some(item.id);
                 self.details_block.set_scroll_position(0);
+                self.details_block.set_horizontal_scroll_position(0);
             }
 
             let mut content_lines = vec![
@@ -648,24 +704,67 @@ impl App {
                 Line::from(vec!["Tag:    ".bold(), item.tag.clone().into()]),
                 Line::from("Content:".bold()),
             ];
-            let content_rect = self
+            let temp_content_rect = self
                 .details_block
-                .get_content_rect(content_area, is_focused);
+                .get_content_rect(vertical_content_area, is_focused);
 
-            content_lines.extend(arrange_content_into_lines(
+            let wrapping_mode = if self.text_wrapping_enabled {
+                WrappingMode::Wrapped
+            } else {
+                WrappingMode::Unwrapped
+            };
+            content_lines.extend(content_into_lines(
                 &item.content,
-                content_rect.width,
-                self.text_wrapping_enabled,
+                temp_content_rect.width,
+                wrapping_mode,
             ));
-            content_lines
+
+            // Calculate max content width for horizontal scrolling
+            let max_content_width = if self.text_wrapping_enabled {
+                temp_content_rect.width as usize
+            } else {
+                let header_width = ["Time:   ", "Level:  ", "Origin: ", "Tag:    ", "Content:"]
+                    .iter()
+                    .map(|h| h.len())
+                    .max()
+                    .unwrap_or(0);
+                let item_content_width = calculate_content_width(&item.content);
+                header_width.max(item_content_width)
+            };
+
+            (content_lines, max_content_width)
         } else {
             if self.prev_selected_log_id.is_some() {
                 self.prev_selected_log_id = None;
                 self.details_block.set_scroll_position(0);
+                self.details_block.set_horizontal_scroll_position(0);
                 log::debug!("No log item selected - resetting details scroll position");
             }
-            vec![Line::from("Select a log item to see details...".italic())]
+            (
+                vec![Line::from("Select a log item to see details...".italic())],
+                0,
+            )
         };
+
+        // Determine if horizontal scrollbar is needed
+        let temp_content_rect = self
+            .details_block
+            .get_content_rect(vertical_content_area, is_focused);
+        let needs_horizontal_scrollbar = max_content_width > temp_content_rect.width as usize;
+
+        // Always allocate space for horizontal scrollbar (consistent layout)
+        let [content_area, horizontal_scrollbar_area] = Layout::vertical([
+            Constraint::Fill(1),   // Main content
+            Constraint::Length(1), // Horizontal scrollbar height
+        ])
+        .margin(0)
+        .areas(vertical_content_area);
+
+        let content_rect = self
+            .details_block
+            .get_content_rect(content_area, is_focused);
+        self.details_block
+            .update_horizontal_scrollbar_state(max_content_width, content_rect.width as usize);
 
         let lines_count = content.len();
 
@@ -675,11 +774,16 @@ impl App {
             .update_scrollbar_state(lines_count, Some(scroll_position));
 
         let block = self.details_block.build(is_focused);
+        let h_scroll = if needs_horizontal_scrollbar {
+            self.details_block.get_horizontal_scroll_position() as u16
+        } else {
+            0
+        };
 
         Paragraph::new(content)
             .block(block)
             .fg(theme::TEXT_FG_COLOR)
-            .scroll((scroll_position as u16, 0))
+            .scroll((scroll_position as u16, h_scroll))
             .render(content_area, buf);
 
         let scrollbar = AppBlock::create_scrollbar(is_focused);
@@ -690,6 +794,20 @@ impl App {
             buf,
             self.details_block.get_scrollbar_state(),
         );
+
+        // Always render horizontal scrollbar area (track-only when not needed)
+        let horizontal_scrollbar = if needs_horizontal_scrollbar {
+            AppBlock::create_horizontal_scrollbar(is_focused)
+        } else {
+            AppBlock::create_horizontal_track_only(is_focused)
+        };
+        StatefulWidget::render(
+            horizontal_scrollbar,
+            horizontal_scrollbar_area,
+            buf,
+            self.details_block.get_horizontal_scrollbar_state(),
+        );
+
         Ok(())
     }
 
@@ -718,7 +836,7 @@ impl App {
             self.set_hard_focused_block(debug_block_id);
         }
 
-        let [content_area, scrollbar_area] = Layout::horizontal([
+        let [vertical_content_area, scrollbar_area] = Layout::horizontal([
             Constraint::Fill(1),   // Main content takes most space
             Constraint::Length(1), // Scrollbar is 1 character wide
         ])
@@ -751,6 +869,34 @@ impl App {
             vec![Line::from("Failed to read debug logs...".italic())]
         };
 
+        // Calculate max content width for horizontal scrolling
+        let max_content_width = if let Ok(logs) = self.debug_logs.lock() {
+            logs.iter()
+                .map(|log_entry| log_entry.chars().count())
+                .max()
+                .unwrap_or(0)
+        } else {
+            0
+        };
+
+        // Determine if horizontal scrollbar is needed
+        let temp_content_rect = self
+            .debug_block
+            .get_content_rect(vertical_content_area, is_focused);
+        let needs_horizontal_scrollbar = max_content_width > temp_content_rect.width as usize;
+
+        // Always allocate space for horizontal scrollbar (consistent layout)
+        let [content_area, horizontal_scrollbar_area] = Layout::vertical([
+            Constraint::Fill(1),   // Main content
+            Constraint::Length(1), // Horizontal scrollbar height
+        ])
+        .margin(0)
+        .areas(vertical_content_area);
+
+        let content_rect = self.debug_block.get_content_rect(content_area, is_focused);
+        self.debug_block
+            .update_horizontal_scrollbar_state(max_content_width, content_rect.width as usize);
+
         // The debug_logs_lines vector already contains properly wrapped lines
         let lines_count = debug_logs_lines.len();
 
@@ -760,11 +906,16 @@ impl App {
             .update_scrollbar_state(lines_count, Some(scroll_position));
 
         let _block = self.debug_block.build(is_focused);
+        let h_scroll = if needs_horizontal_scrollbar {
+            self.debug_block.get_horizontal_scroll_position() as u16
+        } else {
+            0
+        };
 
         Paragraph::new(debug_logs_lines)
             .block(_block)
             .fg(theme::TEXT_FG_COLOR)
-            .scroll((scroll_position as u16, 0))
+            .scroll((scroll_position as u16, h_scroll))
             .render(content_area, buf);
 
         let scrollbar = AppBlock::create_scrollbar(is_focused);
@@ -775,6 +926,20 @@ impl App {
             buf,
             self.debug_block.get_scrollbar_state(),
         );
+
+        // Always render horizontal scrollbar area (track-only when not needed)
+        let horizontal_scrollbar = if needs_horizontal_scrollbar {
+            AppBlock::create_horizontal_scrollbar(is_focused)
+        } else {
+            AppBlock::create_horizontal_track_only(is_focused)
+        };
+        StatefulWidget::render(
+            horizontal_scrollbar,
+            horizontal_scrollbar_area,
+            buf,
+            self.debug_block.get_horizontal_scrollbar_state(),
+        );
+
         Ok(())
     }
 
@@ -797,7 +962,18 @@ impl App {
             {
                 let current_scroll_pos = self.logs_block.get_scroll_position();
 
-                let content_rect = self.logs_block.get_content_rect(visible_area, false);
+                // Calculate the main content area (excluding scrollbars)
+                let [content_area, _scrollbar_area] =
+                    Layout::horizontal([Constraint::Fill(1), Constraint::Length(1)])
+                        .margin(0)
+                        .areas(visible_area);
+
+                let [main_content_area, _horizontal_scrollbar_area] =
+                    Layout::vertical([Constraint::Fill(1), Constraint::Length(1)])
+                        .margin(0)
+                        .areas(content_area);
+
+                let content_rect = self.logs_block.get_content_rect(main_content_area, false);
                 let visible_height = content_rect.height as usize;
 
                 if visible_height == 0 {
@@ -938,28 +1114,109 @@ impl App {
         Ok(())
     }
 
+    fn handle_horizontal_scrolling(
+        &mut self,
+        block_id: uuid::Uuid,
+        move_right: bool,
+    ) -> Result<()> {
+        let (block, area) = if block_id == self.logs_block.id() {
+            (&mut self.logs_block, self.last_logs_area)
+        } else if block_id == self.details_block.id() {
+            (&mut self.details_block, self.last_details_area)
+        } else if block_id == self.debug_block.id() {
+            (&mut self.debug_block, self.last_debug_area)
+        } else {
+            return Ok(());
+        };
+
+        let Some(area) = area else {
+            return Ok(());
+        };
+
+        let current_position = block.get_horizontal_scroll_position();
+        let content_width = block.get_content_width();
+
+        // Calculate actual viewport width based on the rendered area
+        let [main_content_area, _scrollbar_area] = Layout::horizontal([
+            Constraint::Fill(1),   // Main content takes most space
+            Constraint::Length(1), // Scrollbar is 1 character wide
+        ])
+        .margin(0)
+        .areas(area);
+
+        let [content_area, _horizontal_scrollbar_area] = Layout::vertical([
+            Constraint::Fill(1),   // Main content
+            Constraint::Length(1), // Horizontal scrollbar height
+        ])
+        .margin(0)
+        .areas(main_content_area);
+
+        let content_rect = block.get_content_rect(content_area, true);
+        let viewport_width = content_rect.width as usize;
+
+        if content_width <= viewport_width {
+            return Ok(());
+        }
+
+        let max_scroll = content_width.saturating_sub(viewport_width);
+        let new_position = if move_right {
+            current_position.saturating_add(5).min(max_scroll)
+        } else {
+            current_position.saturating_sub(5)
+        };
+
+        block.set_horizontal_scroll_position(new_position);
+        block.update_horizontal_scrollbar_state(content_width, viewport_width);
+
+        Ok(())
+    }
+
     fn handle_mouse_event(&mut self, mouse: &MouseEvent) -> Result<()> {
         match mouse.kind {
             MouseEventKind::ScrollDown => {
                 if let Some(block_under_mouse) = self.get_block_under_mouse(mouse) {
-                    if block_under_mouse == self.logs_block.id() {
-                        self.handle_logs_view_scrolling(true)?;
-                    } else if block_under_mouse == self.details_block.id() {
-                        self.handle_details_block_scrolling(true)?;
-                    } else if block_under_mouse == self.debug_block.id() {
-                        self.handle_debug_logs_scrolling(true)?;
+                    // Check if Shift is held for horizontal scrolling
+                    if mouse.modifiers.contains(event::KeyModifiers::SHIFT) {
+                        self.handle_horizontal_scrolling(block_under_mouse, true)?;
+                    } else {
+                        // Normal vertical scrolling
+                        if block_under_mouse == self.logs_block.id() {
+                            self.handle_logs_view_scrolling(true)?;
+                        } else if block_under_mouse == self.details_block.id() {
+                            self.handle_details_block_scrolling(true)?;
+                        } else if block_under_mouse == self.debug_block.id() {
+                            self.handle_debug_logs_scrolling(true)?;
+                        }
                     }
                 }
             }
             MouseEventKind::ScrollUp => {
                 if let Some(block_under_mouse) = self.get_block_under_mouse(mouse) {
-                    if block_under_mouse == self.logs_block.id() {
-                        self.handle_logs_view_scrolling(false)?;
-                    } else if block_under_mouse == self.details_block.id() {
-                        self.handle_details_block_scrolling(false)?;
-                    } else if block_under_mouse == self.debug_block.id() {
-                        self.handle_debug_logs_scrolling(false)?;
+                    // Check if Shift is held for horizontal scrolling
+                    if mouse.modifiers.contains(event::KeyModifiers::SHIFT) {
+                        self.handle_horizontal_scrolling(block_under_mouse, false)?;
+                    } else {
+                        // Normal vertical scrolling
+                        if block_under_mouse == self.logs_block.id() {
+                            self.handle_logs_view_scrolling(false)?;
+                        } else if block_under_mouse == self.details_block.id() {
+                            self.handle_details_block_scrolling(false)?;
+                        } else if block_under_mouse == self.debug_block.id() {
+                            self.handle_debug_logs_scrolling(false)?;
+                        }
                     }
+                }
+            }
+            MouseEventKind::ScrollLeft => {
+                log::debug!("ScrollLeft (touchpad)");
+                if let Some(block_under_mouse) = self.get_block_under_mouse(mouse) {
+                    self.handle_horizontal_scrolling(block_under_mouse, false)?;
+                }
+            }
+            MouseEventKind::ScrollRight => {
+                log::debug!("ScrollRight (touchpad)");
+                if let Some(block_under_mouse) = self.get_block_under_mouse(mouse) {
+                    self.handle_horizontal_scrolling(block_under_mouse, true)?;
                 }
             }
             MouseEventKind::Moved => {}
@@ -1120,6 +1377,18 @@ impl App {
                 log::debug!("Text wrapping toggled: {}", self.text_wrapping_enabled);
                 return Ok(());
             }
+            KeyCode::Char('h') | KeyCode::Left => {
+                if let Some(focused_block) = self.get_display_focused_block() {
+                    self.handle_horizontal_scrolling(focused_block, false)?;
+                }
+                return Ok(());
+            }
+            KeyCode::Char('l') | KeyCode::Right => {
+                if let Some(focused_block) = self.get_display_focused_block() {
+                    self.handle_horizontal_scrolling(focused_block, true)?;
+                }
+                return Ok(());
+            }
             _ => {
                 return Ok(());
             }
@@ -1245,7 +1514,7 @@ impl Widget for &mut App {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let [main, debug_area, footer_area] = Layout::vertical([
             Constraint::Fill(1),
-            Constraint::Length(6),
+            Constraint::Length(20),
             Constraint::Length(1),
         ])
         .areas(area);

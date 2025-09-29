@@ -1,15 +1,54 @@
 use ratatui::text::Line;
 
-pub fn arrange_content_into_lines(content: &str, width: u16, is_wrapped: bool) -> Vec<Line<'_>> {
-    if is_wrapped {
-        wrap_content_to_lines(content, width)
-    } else {
-        // one-to-one line mapping without wrapping
-        content.lines().map(Line::from).collect()
+pub enum WrappingMode {
+    Wrapped,
+    Unwrapped,
+    Truncated,
+}
+
+pub fn content_into_lines(content: &str, width: u16, wrapping_mode: WrappingMode) -> Vec<Line<'_>> {
+    //     content.lines().map(Line::from).collect()
+
+    match wrapping_mode {
+        WrappingMode::Wrapped => wrap_content_to_lines(content, width),
+        WrappingMode::Unwrapped => content_to_unwrapped_lines(content),
+        WrappingMode::Truncated => vec![truncate_content(content, width)],
     }
 }
 
-pub fn wrap_content_to_lines(content: &str, width: u16) -> Vec<Line<'_>> {
+pub fn calculate_content_width(content: &str) -> usize {
+    content
+        .lines()
+        .map(|line| line.chars().count())
+        .max()
+        .unwrap_or(0)
+}
+
+fn content_to_a_single_line(content: &str) -> Line<'_> {
+    Line::from(content)
+}
+
+fn content_to_unwrapped_lines(content: &str) -> Vec<Line<'_>> {
+    content.lines().map(Line::from).collect()
+}
+
+fn truncate_content(content: &str, width: u16) -> Line<'_> {
+    if width == 0 {
+        return Line::from("");
+    }
+
+    let width = width as usize;
+    let first_line = content.lines().next().unwrap_or("");
+
+    if first_line.chars().count() <= width {
+        Line::from(first_line)
+    } else {
+        let truncated: String = first_line.chars().take(width.saturating_sub(2)).collect();
+        Line::from(format!("{}..", truncated))
+    }
+}
+
+fn wrap_content_to_lines(content: &str, width: u16) -> Vec<Line<'_>> {
     if width == 0 {
         return vec![];
     }
@@ -107,7 +146,7 @@ mod tests {
 
     #[test]
     fn test_arrange_content_wrapped() {
-        let result = arrange_content_into_lines("hello world", 5, true);
+        let result = content_into_lines("hello world", 5, WrappingMode::Wrapped);
         assert_eq!(result.len(), 3);
         assert_eq!(result[0].to_string(), "hello");
         assert_eq!(result[1].to_string(), " worl");
@@ -116,7 +155,7 @@ mod tests {
 
     #[test]
     fn test_arrange_content_unwrapped() {
-        let result = arrange_content_into_lines("hello world\nsecond line", 5, false);
+        let result = content_into_lines("hello world\nsecond line", 5, WrappingMode::Unwrapped);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].to_string(), "hello world");
         assert_eq!(result[1].to_string(), "second line");
@@ -124,10 +163,10 @@ mod tests {
 
     #[test]
     fn test_arrange_content_unwrapped_with_long_lines() {
-        let result = arrange_content_into_lines(
+        let result = content_into_lines(
             "this is a very long line that exceeds width\nshort",
             10,
-            false,
+            WrappingMode::Unwrapped,
         );
         assert_eq!(result.len(), 2);
         assert_eq!(
@@ -135,5 +174,40 @@ mod tests {
             "this is a very long line that exceeds width"
         );
         assert_eq!(result[1].to_string(), "short");
+    }
+
+    #[test]
+    fn test_arrange_content_truncated() {
+        let result = content_into_lines("hello world", 5, WrappingMode::Truncated);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].to_string(), "hel..");
+    }
+
+    #[test]
+    fn test_arrange_content_truncated_short() {
+        let result = content_into_lines("hi", 5, WrappingMode::Truncated);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].to_string(), "hi");
+    }
+
+    #[test]
+    fn test_arrange_content_truncated_exact() {
+        let result = content_into_lines("hello", 5, WrappingMode::Truncated);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].to_string(), "hello");
+    }
+
+    #[test]
+    fn test_arrange_content_truncated_multiline() {
+        let result = content_into_lines("hello world\nsecond line", 5, WrappingMode::Truncated);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].to_string(), "hel..");
+    }
+
+    #[test]
+    fn test_arrange_content_truncated_zero_width() {
+        let result = content_into_lines("hello", 0, WrappingMode::Truncated);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].to_string(), "");
     }
 }
