@@ -1148,10 +1148,21 @@ impl App {
                 return Ok(());
             }
             KeyCode::Char('y') => {
-                // Yank (copy) the current log item content to clipboard
                 if let Err(e) = self.yank_current_log() {
                     log::debug!("Failed to yank log content: {}", e);
                 }
+                return Ok(());
+            }
+            KeyCode::Char('1') => {
+                self.set_hard_focused_block(self.logs_block.id());
+                return Ok(());
+            }
+            KeyCode::Char('2') => {
+                self.set_hard_focused_block(self.details_block.id());
+                return Ok(());
+            }
+            KeyCode::Char('3') => {
+                self.set_hard_focused_block(self.debug_block.id());
                 return Ok(());
             }
             _ => {

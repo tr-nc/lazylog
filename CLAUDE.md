@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Rules
+
+if the code is already self-explainable, remove the comments.
+
+for inline comments, don't capitalize the first letter.
+  
 ## Project Overview
 
 dhlog is a terminal-based log file viewer built with Rust and ratatui. It provides real-time log monitoring with vim-like navigation, structured log parsing, and efficient handling of large files through memory-mapped access.
