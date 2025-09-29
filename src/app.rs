@@ -1,6 +1,6 @@
 use crate::{
     app_block::AppBlock,
-    content_line_maker::wrap_content_to_lines,
+    content_line_maker::arrange_content_into_lines,
     file_finder,
     log_list::LogList,
     log_parser::{LogItem, process_delta},
@@ -82,6 +82,7 @@ struct App {
     last_logs_area: Option<Rect>, // Store the last rendered logs area for selection visibility
     last_details_area: Option<Rect>, // Store the last rendered details area
     last_debug_area: Option<Rect>, // Store the last rendered debug area
+    text_wrapping_enabled: bool,  // Whether text wrapping is enabled (default false)
 
     mouse_event: Option<MouseEvent>,
 }
@@ -146,6 +147,7 @@ impl App {
             last_logs_area: None,
             last_details_area: None,
             last_debug_area: None,
+            text_wrapping_enabled: false, // Default to no wrapping
 
             mouse_event: None,
         }
@@ -649,7 +651,12 @@ impl App {
             let content_rect = self
                 .details_block
                 .get_content_rect(content_area, is_focused);
-            content_lines.extend(wrap_content_to_lines(&item.content, content_rect.width));
+
+            content_lines.extend(arrange_content_into_lines(
+                &item.content,
+                content_rect.width,
+                self.text_wrapping_enabled,
+            ));
             content_lines
         } else {
             if self.prev_selected_log_id.is_some() {
@@ -1106,6 +1113,11 @@ impl App {
             }
             KeyCode::Char('3') => {
                 self.set_hard_focused_block(self.debug_block.id());
+                return Ok(());
+            }
+            KeyCode::Char('w') => {
+                self.text_wrapping_enabled = !self.text_wrapping_enabled;
+                log::debug!("Text wrapping toggled: {}", self.text_wrapping_enabled);
                 return Ok(());
             }
             _ => {
