@@ -6,10 +6,8 @@ use ratatui::{
     },
 };
 
-// colors
 pub const TEXT_FG_COLOR: Color = select_color_with_default_palette(PaletteIdx::C200);
 
-// styles
 #[allow(dead_code)]
 pub const LOG_HEADER_STYLE: Style = Style::new()
     .fg(select_color_with_default_palette(PaletteIdx::C100))

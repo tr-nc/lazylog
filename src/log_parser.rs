@@ -4,26 +4,22 @@ use std::ops::Range;
 use uuid::Uuid;
 
 lazy_static! {
-    // Leading header that can appear right at the beginning of the delta
     static ref LEADING_HEADER_RE: Regex = Regex::new(
         r"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}\] \[\w+\]\s*\n?"
     ).unwrap();
 
-    // Same header pattern but searched **everywhere** inside the delta
     static ref INLINE_HEADER_RE: Regex = Regex::new(
         r"\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}\] \[\w+\]\s*"
     ).unwrap();
 
-    // Marks the start of a regular log item
     static ref ITEM_SEP_RE: Regex =
         Regex::new(r"## \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}").unwrap();
 
-    // Parses a regular log item into timestamp + body
     static ref ITEM_PARSE_RE: Regex =
         Regex::new(r"(?s)^## (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s*(.*)").unwrap();
 
-    // Extracts:  [origin] LEVEL ## [TAG] message…
-    // IMPORTANT: In (?x) mode, `#` starts a comment. Escape the hashes as \#\#.
+    // extracts:  [origin] LEVEL ## [TAG] message…
+    // important: In (?x) mode, `#` starts a comment. Escape the hashes as \#\#.
     static ref CONTENT_HEADER_RE: Regex = Regex::new(
         r"(?xs)
           ^\[(?P<origin>[^\]]+)]\s*
@@ -66,7 +62,7 @@ impl LogItem {
 
         return format!("{}{}", count_prefix, base_format);
 
-        /// Split the content by \n, trim each item, and find the first trimmed item that is not empty
+        /// split the content by \n, trim each item, and find the first trimmed item that is not empty
         fn shorten_content(content: &str) -> String {
             let lines = content
                 .split('\n')
@@ -82,7 +78,6 @@ impl LogItem {
     }
 
     fn format_with_fields(&self, detail_level: u8, content: &str) -> String {
-        // Define the field order: time, tag, origin, level
         let field_order = [
             ("time", &self.time),
             ("tag", &self.tag),
@@ -94,7 +89,6 @@ impl LogItem {
             0 => content.to_string(),
             1 => {
                 let mut parts = Vec::new();
-                // Add only the first field
                 if let Some((_, field_value)) = field_order.first() {
                     if !field_value.is_empty() {
                         parts.push(format!("[{}]", field_value));
@@ -105,7 +99,6 @@ impl LogItem {
             }
             2 => {
                 let mut parts = Vec::new();
-                // Add first two fields
                 for (_, field_value) in field_order.iter().take(2) {
                     if !field_value.is_empty() {
                         parts.push(format!("[{}]", field_value));
@@ -116,7 +109,6 @@ impl LogItem {
             }
             3 => {
                 let mut parts = Vec::new();
-                // Add first three fields
                 for (_, field_value) in field_order.iter().take(3) {
                     if !field_value.is_empty() {
                         parts.push(format!("[{}]", field_value));
@@ -127,7 +119,6 @@ impl LogItem {
             }
             4 => {
                 let mut parts = Vec::new();
-                // Add all fields
                 for (_, field_value) in field_order.iter() {
                     if !field_value.is_empty() {
                         parts.push(format!("[{}]", field_value));
@@ -137,7 +128,6 @@ impl LogItem {
                 parts.join(" ")
             }
             _ => {
-                // Default to level 1
                 let mut parts = Vec::new();
                 if let Some((_, field_value)) = field_order.first() {
                     if !field_value.is_empty() {
@@ -291,9 +281,9 @@ fn remove_inline_headers(s: &str) -> String {
     INLINE_HEADER_RE.replace_all(s, "").into_owned()
 }
 
-// Split “[origin] LEVEL ## [TAG] …” → (origin, level, tag, msg)
+// split "[origin] LEVEL ## [TAG] …" → (origin, level, tag, msg)
 fn split_header(line: &str) -> (String, String, String, String) {
-    // Be robust to BOM/control chars that might precede the first “[”.
+    // be robust to BOM/control chars that might precede the first "[".
     let line =
         line.trim_start_matches(|c: char| c.is_whitespace() || c == '\u{feff}' || c.is_control());
 

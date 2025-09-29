@@ -43,11 +43,10 @@ fn main() -> io::Result<()> {
 }
 
 fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<io::Stdout>>> {
-    // Enable raw mode to process key events without OS interference.
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    // Enter the alternate screen to not mess with the user's shell history.
-    // Enable mouse capture to receive mouse events.
+    // enter the alternate screen to not mess with the user's shell history
+    // enable mouse capture to receive mouse events
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     Terminal::new(backend)
@@ -56,18 +55,14 @@ fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<io::Stdout>>> {
 fn restore_terminal() -> io::Result<()> {
     let mut stdout = io::stdout();
 
-    // stop the terminal from sending further mouse packets
     execute!(stdout, DisableMouseCapture)?;
 
-    // switch back to the normal screen (still in raw mode, no echo)
     execute!(stdout, LeaveAlternateScreen)?;
 
-    // drain any pending events so nothing is left in the input buffer.
     while event::poll(Duration::from_millis(0))? {
         let _ = event::read()?;
     }
 
-    // finally leave raw mode (echo/canonical back on)
     disable_raw_mode()?;
 
     Ok(())

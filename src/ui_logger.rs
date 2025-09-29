@@ -20,7 +20,7 @@ impl Log for UiLogger {
             let log_entry = format!("[{}] {}", record.level(), record.args());
             if let Ok(mut logs) = self.logs.lock() {
                 logs.push(log_entry);
-                // Keep only the last 50 entries to prevent memory bloat
+                // keep only the last 50 entries to prevent memory bloat
                 if logs.len() > 50 {
                     logs.remove(0);
                 }

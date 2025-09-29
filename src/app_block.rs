@@ -92,7 +92,7 @@ impl AppBlock {
                 .content_length(total_items)
                 .position(position);
         } else {
-            // When no items are present, set content_length to 1 to show a 100% height thumb
+            // when no items are present, set content_length to 1 to show a 100% height thumb
             self.scrollbar_state = self.scrollbar_state.content_length(1).position(0);
         }
     }
@@ -151,7 +151,7 @@ impl AppBlock {
                 mouse_event.row,
             ));
 
-            // Handle hover focus - return true if mouse is hovering over this block
+            // handle hover focus - return true if mouse is hovering over this block
             if is_hovering && mouse_event.kind == MouseEventKind::Moved {
                 return true;
             }
