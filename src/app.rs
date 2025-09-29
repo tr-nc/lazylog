@@ -49,7 +49,7 @@ pub fn start_with_desc(
     color_eyre::install().or(Err(anyhow!("Error installing color_eyre")))?;
 
     let log_dir_path = match dirs::home_dir() {
-        Some(path) => path.join("Library/Application Support/DouyinAR/Logs/previewLog"),
+        Some(path) => path.join("Library/Application Support/DouyinAR/Logs"),
         None => {
             return Err(anyhow!("Error getting home directory"));
         }
@@ -104,7 +104,8 @@ impl App {
     fn new(log_dir_path: PathBuf, desc: AppDesc) -> Self {
         let debug_logs = Self::setup_logger();
 
-        let log_file_path = match file_finder::find_latest_live_log(&log_dir_path) {
+        let preview_log_dirs = file_finder::find_preview_log_dirs(&log_dir_path);
+        let log_file_path = match file_finder::find_latest_live_log(preview_log_dirs) {
             Ok(path) => {
                 log::debug!(
                     "Found initial log file: {}",
@@ -208,7 +209,8 @@ impl App {
     }
 
     fn check_for_newer_log_file(&self) -> Result<Option<PathBuf>> {
-        match file_finder::find_latest_live_log(&self.log_dir_path) {
+        let preview_log_dirs = file_finder::find_preview_log_dirs(&self.log_dir_path);
+        match file_finder::find_latest_live_log(preview_log_dirs) {
             Ok(latest_file_path) => {
                 if !self.log_file_path.exists() {
                     log::debug!("Found first log file: {}", latest_file_path.display());
