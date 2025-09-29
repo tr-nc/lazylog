@@ -7,8 +7,6 @@ pub enum WrappingMode {
 }
 
 pub fn content_into_lines(content: &str, width: u16, wrapping_mode: WrappingMode) -> Vec<Line<'_>> {
-    //     content.lines().map(Line::from).collect()
-
     match wrapping_mode {
         WrappingMode::Wrapped => wrap_content_to_lines(content, width),
         WrappingMode::Unwrapped => content_to_unwrapped_lines(content),
@@ -22,10 +20,6 @@ pub fn calculate_content_width(content: &str) -> usize {
         .map(|line| line.chars().count())
         .max()
         .unwrap_or(0)
-}
-
-fn content_to_a_single_line(content: &str) -> Line<'_> {
-    Line::from(content)
 }
 
 fn content_to_unwrapped_lines(content: &str) -> Vec<Line<'_>> {

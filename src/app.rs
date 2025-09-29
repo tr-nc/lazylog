@@ -92,17 +92,14 @@ impl App {
         let debug_logs = Arc::new(Mutex::new(Vec::new()));
         let logger = Box::new(UiLogger::new(debug_logs.clone()));
 
-        match log::set_logger(Box::leak(logger)) {
-            Ok(_) => {
-                log::set_max_level(log::LevelFilter::Debug);
-            }
-            Err(_) => {}
+        if log::set_logger(Box::leak(logger)).is_ok() {
+            log::set_max_level(log::LevelFilter::Debug);
         }
 
         debug_logs
     }
 
-    fn new(log_dir_path: PathBuf, desc: AppDesc) -> Self {
+    fn new(log_dir_path: PathBuf, _desc: AppDesc) -> Self {
         let debug_logs = Self::setup_logger();
 
         let preview_log_dirs = file_finder::find_preview_log_dirs(&log_dir_path);
@@ -135,7 +132,7 @@ impl App {
             debug_logs,
             hard_focused_block_id: None,
             soft_focused_block_id: None,
-            logs_block: AppBlock::new().set_title(format!("[1]─Logs")),
+            logs_block: AppBlock::new().set_title("[1]─Logs".to_string()),
             details_block: AppBlock::new()
                 .set_title("[2]─Details")
                 .set_padding(Padding::horizontal(1)),
@@ -371,7 +368,7 @@ impl App {
 
     fn apply_filter(&mut self) {
         let previous_uuid = self.selected_log_uuid;
-        let prev_scroll_pos = Some(self.logs_block.get_scroll_position());
+        let prev_scroll_pos = self.logs_block.get_scroll_position();
 
         self.rebuild_filtered_list();
 
@@ -384,7 +381,7 @@ impl App {
 
         {
             let new_total = self.displaying_logs.items.len();
-            let mut pos = prev_scroll_pos.unwrap_or(0);
+            let mut pos = prev_scroll_pos;
             if new_total == 0 {
                 pos = 0;
             } else {
@@ -467,7 +464,7 @@ impl App {
             }
             display_content
         } else {
-            format!("[1]─Logs | Waiting for log files...")
+            "[1]─Logs | Waiting for log files...".to_string()
         };
         self.logs_block.update_title(title);
         let logs_block_id = self.logs_block.id();
@@ -947,14 +944,6 @@ impl App {
         Ok(self.get_display_focused_block() == Some(self.logs_block.id()))
     }
 
-    fn is_debug_block_focused(&self) -> Result<bool> {
-        Ok(self.get_display_focused_block() == Some(self.debug_block.id()))
-    }
-
-    fn is_details_block_focused(&self) -> Result<bool> {
-        Ok(self.get_display_focused_block() == Some(self.details_block.id()))
-    }
-
     fn ensure_selection_visible(&mut self) -> Result<()> {
         let selected_index = self.displaying_logs.state.selected();
 
@@ -1299,7 +1288,7 @@ impl App {
             KeyCode::Char('q') | KeyCode::Esc => {
                 log::debug!("Exit key pressed");
                 self.is_exiting = true;
-                return Ok(());
+                Ok(())
             }
             KeyCode::Char('c') => {
                 if key.modifiers.contains(event::KeyModifiers::CONTROL) {
@@ -1307,96 +1296,90 @@ impl App {
                 } else {
                     self.clear_logs();
                 }
-                return Ok(());
+                Ok(())
             }
             KeyCode::Char('f') => {
                 self.fold_logs();
-                return Ok(());
+                Ok(())
             }
             KeyCode::Char('j') | KeyCode::Down => {
                 self.handle_log_item_scrolling(true, true)?;
-                return Ok(());
+                Ok(())
             }
             KeyCode::Char('k') | KeyCode::Up => {
                 self.handle_log_item_scrolling(false, true)?;
-                return Ok(());
+                Ok(())
             }
             KeyCode::Char('g') => {
                 self.displaying_logs.select_first();
                 self.update_selected_uuid();
                 self.ensure_selection_visible()?;
                 self.update_logs_scrollbar_state();
-                return Ok(());
+                Ok(())
             }
             KeyCode::Char('G') => {
                 self.displaying_logs.select_last();
                 self.update_selected_uuid();
                 self.ensure_selection_visible()?;
                 self.update_logs_scrollbar_state();
-                return Ok(());
+                Ok(())
             }
             KeyCode::Char('/') => {
                 self.filter_mode = true;
                 self.filter_input.clear();
-                return Ok(());
+                Ok(())
             }
             KeyCode::Char('[') => {
                 // decrease detail level (show less info) - non-circular
                 if self.detail_level > 0 {
                     self.detail_level -= 1;
                 }
-                return Ok(());
+                Ok(())
             }
             KeyCode::Char(']') => {
                 // increase detail level (show more info) - non-circular
                 if self.detail_level < 4 {
                     self.detail_level += 1;
                 }
-                return Ok(());
+                Ok(())
             }
             KeyCode::Char('y') => {
                 if let Err(e) = self.yank_current_log() {
                     log::debug!("Failed to yank log content: {}", e);
                 }
-                return Ok(());
+                Ok(())
             }
             KeyCode::Char('1') => {
                 self.set_hard_focused_block(self.logs_block.id());
-                return Ok(());
+                Ok(())
             }
             KeyCode::Char('2') => {
                 self.set_hard_focused_block(self.details_block.id());
-                return Ok(());
+                Ok(())
             }
             KeyCode::Char('3') => {
                 self.set_hard_focused_block(self.debug_block.id());
-                return Ok(());
+                Ok(())
             }
             KeyCode::Char('w') => {
                 self.text_wrapping_enabled = !self.text_wrapping_enabled;
                 log::debug!("Text wrapping toggled: {}", self.text_wrapping_enabled);
-                return Ok(());
+                Ok(())
             }
             KeyCode::Char('h') | KeyCode::Left => {
                 if let Some(focused_block) = self.get_display_focused_block() {
                     self.handle_horizontal_scrolling(focused_block, false)?;
                 }
-                return Ok(());
+                Ok(())
             }
             KeyCode::Char('l') | KeyCode::Right => {
                 if let Some(focused_block) = self.get_display_focused_block() {
                     self.handle_horizontal_scrolling(focused_block, true)?;
                 }
-                return Ok(());
+                Ok(())
             }
-            _ => {
-                return Ok(());
-            }
+            _ => Ok(()),
         }
-    }
-
-    fn set_focused_block(&mut self, block_id: uuid::Uuid) {
-        self.hard_focused_block_id = Some(block_id);
     }
 
     fn set_hard_focused_block(&mut self, block_id: uuid::Uuid) {
@@ -1409,20 +1392,8 @@ impl App {
         }
     }
 
-    fn clear_soft_focus(&mut self) {
-        self.soft_focused_block_id = None;
-    }
-
     fn get_display_focused_block(&self) -> Option<uuid::Uuid> {
         self.hard_focused_block_id.or(self.soft_focused_block_id)
-    }
-
-    fn is_hard_focused(&self, block_id: uuid::Uuid) -> bool {
-        self.hard_focused_block_id == Some(block_id)
-    }
-
-    fn is_soft_focused(&self, block_id: uuid::Uuid) -> bool {
-        self.soft_focused_block_id == Some(block_id)
     }
 
     fn is_mouse_in_area(&self, mouse: &MouseEvent, area: Rect) -> bool {
@@ -1433,22 +1404,22 @@ impl App {
     }
 
     fn get_block_under_mouse(&self, mouse: &MouseEvent) -> Option<uuid::Uuid> {
-        if let Some(area) = self.last_logs_area {
-            if self.is_mouse_in_area(mouse, area) {
-                return Some(self.logs_block.id());
-            }
+        if let Some(area) = self.last_logs_area
+            && self.is_mouse_in_area(mouse, area)
+        {
+            return Some(self.logs_block.id());
         }
 
-        if let Some(area) = self.last_details_area {
-            if self.is_mouse_in_area(mouse, area) {
-                return Some(self.details_block.id());
-            }
+        if let Some(area) = self.last_details_area
+            && self.is_mouse_in_area(mouse, area)
+        {
+            return Some(self.details_block.id());
         }
 
-        if let Some(area) = self.last_debug_area {
-            if self.is_mouse_in_area(mouse, area) {
-                return Some(self.debug_block.id());
-            }
+        if let Some(area) = self.last_debug_area
+            && self.is_mouse_in_area(mouse, area)
+        {
+            return Some(self.debug_block.id());
         }
 
         None
@@ -1514,7 +1485,7 @@ impl Widget for &mut App {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let [main, debug_area, footer_area] = Layout::vertical([
             Constraint::Fill(1),
-            Constraint::Length(20),
+            Constraint::Length(6),
             Constraint::Length(1),
         ])
         .areas(area);

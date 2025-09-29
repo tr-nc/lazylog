@@ -1,4 +1,3 @@
-use crossterm::event::{MouseEvent, MouseEventKind};
 use ratatui::{
     layout::Rect,
     prelude::Stylize,
@@ -129,10 +128,6 @@ impl AppBlock {
 
     pub fn get_horizontal_scroll_position(&self) -> usize {
         self.horizontal_scroll_position
-    }
-
-    pub fn set_content_width(&mut self, width: usize) {
-        self.content_width = width;
     }
 
     pub fn get_content_width(&self) -> usize {

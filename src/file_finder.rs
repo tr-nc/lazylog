@@ -13,10 +13,10 @@ pub fn find_preview_log_dirs(base_path: &Path) -> Vec<PathBuf> {
 
             if path.is_dir() {
                 // check if this directory is named 'previewLog'
-                if let Some(dir_name) = path.file_name() {
-                    if dir_name == "previewLog" {
-                        preview_log_dirs.push(path.clone());
-                    }
+                if let Some(dir_name) = path.file_name()
+                    && dir_name == "previewLog"
+                {
+                    preview_log_dirs.push(path.clone());
                 }
 
                 // recursively search in subdirectories
@@ -68,10 +68,10 @@ pub fn find_latest_live_log(preview_log_dirs: Vec<PathBuf>) -> Result<PathBuf, S
 
         // get modification time for each file to find the latest one globally
         for file_path in live_log_files {
-            if let Ok(metadata) = fs::metadata(&file_path) {
-                if let Ok(modified) = metadata.modified() {
-                    all_live_log_files.push((file_path, modified));
-                }
+            if let Ok(metadata) = fs::metadata(&file_path)
+                && let Ok(modified) = metadata.modified()
+            {
+                all_live_log_files.push((file_path, modified));
             }
         }
     }

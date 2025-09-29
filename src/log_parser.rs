@@ -73,7 +73,7 @@ impl LogItem {
                     return line.to_string();
                 }
             }
-            return content.to_string();
+            content.to_string()
         }
     }
 
@@ -89,10 +89,10 @@ impl LogItem {
             0 => content.to_string(),
             1 => {
                 let mut parts = Vec::new();
-                if let Some((_, field_value)) = field_order.first() {
-                    if !field_value.is_empty() {
-                        parts.push(format!("[{}]", field_value));
-                    }
+                if let Some((_, field_value)) = field_order.first()
+                    && !field_value.is_empty()
+                {
+                    parts.push(format!("[{}]", field_value));
                 }
                 parts.push(content.to_string());
                 parts.join(" ")
@@ -129,10 +129,10 @@ impl LogItem {
             }
             _ => {
                 let mut parts = Vec::new();
-                if let Some((_, field_value)) = field_order.first() {
-                    if !field_value.is_empty() {
-                        parts.push(format!("[{}]", field_value));
-                    }
+                if let Some((_, field_value)) = field_order.first()
+                    && !field_value.is_empty()
+                {
+                    parts.push(format!("[{}]", field_value));
                 }
                 parts.push(content.to_string());
                 parts.join(" ")
@@ -344,15 +344,15 @@ pub fn process_delta(delta: &str) -> Vec<LogItem> {
     if !starts.is_empty() {
         starts.push(body.len()); // sentinel
         for win in starts.windows(2) {
-            if let [s, e] = *win {
-                if let Some(mut it) = parse_structured(&body[s..e]) {
-                    let (o, l, t, msg) = split_header(&it.content);
-                    it.origin = o;
-                    it.level = l;
-                    it.tag = t;
-                    it.content = msg;
-                    positioned.push((s, it));
-                }
+            if let [s, e] = *win
+                && let Some(mut it) = parse_structured(&body[s..e])
+            {
+                let (o, l, t, msg) = split_header(&it.content);
+                it.origin = o;
+                it.level = l;
+                it.tag = t;
+                it.content = msg;
+                positioned.push((s, it));
             }
         }
     }
