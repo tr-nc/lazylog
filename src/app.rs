@@ -25,7 +25,27 @@ use std::{
     time::Duration,
 };
 
+#[derive(Clone)]
+pub struct AppDesc {
+    pub poll_interval: Duration,
+}
+
+impl Default for AppDesc {
+    fn default() -> Self {
+        Self {
+            poll_interval: Duration::from_millis(100),
+        }
+    }
+}
+
 pub fn start(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
+    start_with_desc(terminal, AppDesc::default())
+}
+
+pub fn start_with_desc(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    desc: AppDesc,
+) -> Result<()> {
     color_eyre::install().or(Err(anyhow!("Error installing color_eyre")))?;
 
     let log_dir_path = match dirs::home_dir() {
@@ -35,7 +55,8 @@ pub fn start(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()
         }
     };
 
-    App::new(log_dir_path).run(terminal)
+    let app = App::new(log_dir_path, desc.clone());
+    app.run(terminal, &desc)
 }
 
 struct App {
@@ -62,7 +83,7 @@ struct App {
     last_details_area: Option<Rect>, // Store the last rendered details area
     last_debug_area: Option<Rect>, // Store the last rendered debug area
 
-    event: Option<MouseEvent>,
+    mouse_event: Option<MouseEvent>,
 }
 
 impl App {
@@ -80,7 +101,7 @@ impl App {
         debug_logs
     }
 
-    fn new(log_dir_path: PathBuf) -> Self {
+    fn new(log_dir_path: PathBuf, desc: AppDesc) -> Self {
         let debug_logs = Self::setup_logger();
 
         let log_file_path = match file_finder::find_latest_live_log(&log_dir_path) {
@@ -125,14 +146,18 @@ impl App {
             last_details_area: None,
             last_debug_area: None,
 
-            event: None,
+            mouse_event: None,
         }
     }
 
-    fn run(mut self, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
+    fn run(
+        mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        desc: &AppDesc,
+    ) -> Result<()> {
         self.set_hard_focused_block(self.logs_block.id());
 
-        let poll_interval = Duration::from_millis(100);
+        let poll_interval = desc.poll_interval;
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<()> {
             while !self.is_exiting {
@@ -161,33 +186,8 @@ impl App {
             match event {
                 Event::Key(key) => self.handle_key(key)?,
                 Event::Mouse(mouse) => {
-                    match mouse.kind {
-                        MouseEventKind::ScrollDown => {
-                            if let Some(block_under_mouse) = self.get_block_under_mouse(&mouse) {
-                                if block_under_mouse == self.logs_block.id() {
-                                    self.handle_logs_view_scrolling(true)?;
-                                } else if block_under_mouse == self.details_block.id() {
-                                    self.handle_details_block_scrolling(true)?;
-                                } else if block_under_mouse == self.debug_block.id() {
-                                    self.handle_debug_logs_scrolling(true)?;
-                                }
-                            }
-                        }
-                        MouseEventKind::ScrollUp => {
-                            if let Some(block_under_mouse) = self.get_block_under_mouse(&mouse) {
-                                if block_under_mouse == self.logs_block.id() {
-                                    self.handle_logs_view_scrolling(false)?;
-                                } else if block_under_mouse == self.details_block.id() {
-                                    self.handle_details_block_scrolling(false)?;
-                                } else if block_under_mouse == self.debug_block.id() {
-                                    self.handle_debug_logs_scrolling(false)?;
-                                }
-                            }
-                        }
-                        MouseEventKind::Moved => {}
-                        _ => {}
-                    }
-                    self.event = Some(mouse);
+                    self.handle_mouse_event(&mouse)?;
+                    self.mouse_event = Some(mouse);
                 }
                 Event::Resize(width, height) => {
                     log::debug!("Terminal resized to {}x{}", width, height);
@@ -468,7 +468,7 @@ impl App {
         self.logs_block.update_title(title);
         let logs_block_id = self.logs_block.id();
 
-        let (should_hard_focus, clicked_row) = if let Some(event) = self.event {
+        let (should_hard_focus, clicked_row) = if let Some(event) = self.mouse_event {
             let is_left_click = event.kind
                 == crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left);
             let inner_area = self.logs_block.build(false).inner(content_area);
@@ -599,7 +599,7 @@ impl App {
         let details_block_id = self.details_block.id();
         let is_focused = self.get_display_focused_block() == Some(details_block_id);
 
-        let should_hard_focus = if let Some(event) = self.event {
+        let should_hard_focus = if let Some(event) = self.mouse_event {
             let is_left_click = event.kind
                 == crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left);
             let inner_area = self.details_block.build(false).inner(area);
@@ -689,7 +689,7 @@ impl App {
         let debug_block_id = self.debug_block.id();
         let is_focused = self.get_display_focused_block() == Some(debug_block_id);
 
-        let should_hard_focus = if let Some(event) = self.event {
+        let should_hard_focus = if let Some(event) = self.mouse_event {
             let is_left_click = event.kind
                 == crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left);
             let inner_area = self.debug_block.build(false).inner(area);
@@ -929,6 +929,36 @@ impl App {
         Ok(())
     }
 
+    fn handle_mouse_event(&mut self, mouse: &MouseEvent) -> Result<()> {
+        match mouse.kind {
+            MouseEventKind::ScrollDown => {
+                if let Some(block_under_mouse) = self.get_block_under_mouse(mouse) {
+                    if block_under_mouse == self.logs_block.id() {
+                        self.handle_logs_view_scrolling(true)?;
+                    } else if block_under_mouse == self.details_block.id() {
+                        self.handle_details_block_scrolling(true)?;
+                    } else if block_under_mouse == self.debug_block.id() {
+                        self.handle_debug_logs_scrolling(true)?;
+                    }
+                }
+            }
+            MouseEventKind::ScrollUp => {
+                if let Some(block_under_mouse) = self.get_block_under_mouse(mouse) {
+                    if block_under_mouse == self.logs_block.id() {
+                        self.handle_logs_view_scrolling(false)?;
+                    } else if block_under_mouse == self.details_block.id() {
+                        self.handle_details_block_scrolling(false)?;
+                    } else if block_under_mouse == self.debug_block.id() {
+                        self.handle_debug_logs_scrolling(false)?;
+                    }
+                }
+            }
+            MouseEventKind::Moved => {}
+            _ => {}
+        }
+        Ok(())
+    }
+
     fn make_yank_content(&self, item: &LogItem) -> String {
         format!(
             "# Formatted Log\n\n## Time:\n\n{}\n\n## Level:\n\n{}\n\n## Origin:\n\n{}\n\n## Tag:\n\n{}\n\n## Content:\n\n{}\n\n# Raw Log\n\n{}",
@@ -1142,7 +1172,7 @@ impl App {
     }
 
     fn clear_event(&mut self) {
-        self.event = None;
+        self.mouse_event = None;
     }
 
     /// Find the index of a log item by its UUID
