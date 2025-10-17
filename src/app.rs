@@ -1,21 +1,21 @@
 use crate::{
     app_block::AppBlock,
-    content_line_maker::{WrappingMode, calculate_content_width, content_into_lines},
+    content_line_maker::{calculate_content_width, content_into_lines, WrappingMode},
     file_finder,
     log_list::LogList,
-    log_parser::{LogItem, process_delta},
+    log_parser::{process_delta, LogItem},
     metadata, theme,
     ui_logger::UiLogger,
 };
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use arboard::Clipboard;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, MouseEvent, MouseEventKind};
 use memmap2::MmapOptions;
 use ratatui::{
-    Terminal,
     backend::CrosstermBackend,
     prelude::*,
     widgets::{Padding, Paragraph, StatefulWidget, Widget},
+    Terminal,
 };
 use std::{
     fs::File,
@@ -1139,7 +1139,6 @@ impl App {
         ])
         .margin(0)
         .areas(main_content_area);
-
         let content_rect = block.get_content_rect(content_area, true);
         let viewport_width = content_rect.width as usize;
 
@@ -1237,10 +1236,7 @@ impl App {
         let yank_content = self.make_yank_content(item);
         clipboard.set_text(&yank_content)?;
 
-        log::debug!(
-            "Yanked log content to clipboard: {} chars",
-            yank_content.len()
-        );
+        log::debug!("Copied {} chars to clipboard", yank_content.len());
 
         Ok(())
     }
