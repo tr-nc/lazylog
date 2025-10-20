@@ -1,4 +1,3 @@
-use crossterm::event::{MouseEvent, MouseEventKind};
 use ratatui::{
     layout::Rect,
     prelude::Stylize,
@@ -18,6 +17,9 @@ pub struct AppBlock {
     scroll_position: usize,
     scrollbar_state: ScrollbarState,
     padding: Option<Padding>,
+    horizontal_scroll_position: usize,
+    horizontal_scrollbar_state: ScrollbarState,
+    content_width: usize,
 }
 
 impl AppBlock {
@@ -29,11 +31,14 @@ impl AppBlock {
             scroll_position: 0,
             scrollbar_state: ScrollbarState::default(),
             padding: None,
+            horizontal_scroll_position: 0,
+            horizontal_scrollbar_state: ScrollbarState::default(),
+            content_width: 0,
         }
     }
 
     pub fn set_title(mut self, title: impl Into<String>) -> Self {
-        self.title = Some(title.into());
+        self.update_title(title);
         self
     }
 
@@ -43,7 +48,7 @@ impl AppBlock {
     }
 
     pub fn update_title(&mut self, title: impl Into<String>) {
-        self.title = Some(title.into());
+        self.title = Some(format!("─{}", title.into()));
     }
 
     #[allow(dead_code)]
@@ -66,14 +71,14 @@ impl AppBlock {
 
         if let Some(title) = &self.title {
             let title_style = if focused {
-                Style::new().bold().underlined()
+                Style::new().bold()
             } else {
                 Style::new()
             };
             block = block.title(
                 ratatui::prelude::Line::from(title.as_str())
                     .style(title_style)
-                    .centered(),
+                    .left_aligned(),
             );
         }
 
@@ -92,7 +97,7 @@ impl AppBlock {
                 .content_length(total_items)
                 .position(position);
         } else {
-            // When no items are present, set content_length to 1 to show a 100% height thumb
+            // when no items are present, set content_length to 1 to show a 100% height thumb
             self.scrollbar_state = self.scrollbar_state.content_length(1).position(0);
         }
     }
@@ -117,6 +122,46 @@ impl AppBlock {
         &mut self.scrollbar_state
     }
 
+    pub fn set_horizontal_scroll_position(&mut self, position: usize) {
+        self.horizontal_scroll_position = position;
+    }
+
+    pub fn get_horizontal_scroll_position(&self) -> usize {
+        self.horizontal_scroll_position
+    }
+
+    pub fn get_content_width(&self) -> usize {
+        self.content_width
+    }
+
+    pub fn update_horizontal_scrollbar_state(
+        &mut self,
+        content_width: usize,
+        viewport_width: usize,
+    ) {
+        self.content_width = content_width;
+        if content_width > viewport_width {
+            let position = self
+                .horizontal_scroll_position
+                .min(content_width.saturating_sub(viewport_width));
+            self.horizontal_scroll_position = position;
+            self.horizontal_scrollbar_state = self
+                .horizontal_scrollbar_state
+                .content_length(content_width.saturating_sub(viewport_width))
+                .position(position);
+        } else {
+            self.horizontal_scroll_position = 0;
+            self.horizontal_scrollbar_state = self
+                .horizontal_scrollbar_state
+                .content_length(1)
+                .position(0);
+        }
+    }
+
+    pub fn get_horizontal_scrollbar_state(&mut self) -> &mut ScrollbarState {
+        &mut self.horizontal_scrollbar_state
+    }
+
     /// Creates a uniform scrollbar widget with consistent styling
     pub fn create_scrollbar(focused: bool) -> Scrollbar<'static> {
         let color = if focused {
@@ -129,34 +174,48 @@ impl AppBlock {
             .symbols(scrollbar::VERTICAL)
             .style(Style::default().fg(color))
             .begin_symbol(Some("╮"))
-            .end_symbol(None)
+            .end_symbol(Some("╯"))
             .track_symbol(Some("│"))
+            .thumb_symbol("█")
+    }
+
+    /// Creates a horizontal scrollbar widget with consistent styling
+    pub fn create_horizontal_scrollbar(focused: bool) -> Scrollbar<'static> {
+        let color = if focused {
+            palette::tailwind::ZINC.c100
+        } else {
+            palette::tailwind::ZINC.c600
+        };
+
+        Scrollbar::new(ScrollbarOrientation::HorizontalBottom)
+            .symbols(scrollbar::HORIZONTAL)
+            .style(Style::default().fg(color))
+            .begin_symbol(Some("╰"))
+            .end_symbol(Some("─"))
+            .track_symbol(Some("─"))
+            .thumb_symbol("🬋")
+    }
+
+    /// Creates a horizontal scrollbar that only shows track (no thumb)
+    pub fn create_horizontal_track_only(focused: bool) -> Scrollbar<'static> {
+        let color = if focused {
+            palette::tailwind::ZINC.c100
+        } else {
+            palette::tailwind::ZINC.c600
+        };
+
+        Scrollbar::new(ScrollbarOrientation::HorizontalBottom)
+            .symbols(scrollbar::HORIZONTAL)
+            .style(Style::default().fg(color))
+            .begin_symbol(Some("╰"))
+            .end_symbol(Some("─"))
+            .track_symbol(Some("─"))
+            .thumb_symbol("─") // Same as track, so thumb is invisible
     }
 
     /// Returns the content rectangle accounting for block borders
     pub fn get_content_rect(&self, area: Rect, focused: bool) -> Rect {
         self.build(focused).inner(area)
-    }
-
-    pub fn handle_mouse_event(
-        &self,
-        _event: &MouseEvent,
-        area: Rect,
-        mouse_event: Option<&MouseEvent>,
-    ) -> bool {
-        if let Some(mouse_event) = mouse_event {
-            let inner_area = self.build(false).inner(area);
-            let is_hovering = inner_area.contains(ratatui::layout::Position::new(
-                mouse_event.column,
-                mouse_event.row,
-            ));
-
-            // Handle hover focus - return true if mouse is hovering over this block
-            if is_hovering && mouse_event.kind == MouseEventKind::Moved {
-                return true;
-            }
-        }
-        false
     }
 }
 

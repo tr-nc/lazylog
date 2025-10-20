@@ -15,7 +15,8 @@
       "Read(//Users/bytedance/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ratatui-0.29.0/src/widgets/list/**)",
       "WebSearch",
       "Bash(./regex_test)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "WebFetch(domain:docs.rs)"
     ],
     "deny": [],
     "ask": []

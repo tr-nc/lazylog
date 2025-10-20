@@ -77,7 +77,7 @@ impl App {
     fn draw(&mut self, frame: &mut Frame) {
         let area = frame.area();
 
-        // Words made "loooong" to demonstrate line breaking.
+        // words made "loooong" to demonstrate line breaking.
         let s =
             "Veeeeeeeeeeeeeeeery    loooooooooooooooooong   striiiiiiiiiiiiiiiiiiiiiiiiiing.   ";
         let mut long_line = s.repeat(usize::from(area.width) / s.len() + 4);

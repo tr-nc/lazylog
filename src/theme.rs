@@ -6,10 +6,8 @@ use ratatui::{
     },
 };
 
-// colors
 pub const TEXT_FG_COLOR: Color = select_color_with_default_palette(PaletteIdx::C200);
 
-// styles
 #[allow(dead_code)]
 pub const LOG_HEADER_STYLE: Style = Style::new()
     .fg(select_color_with_default_palette(PaletteIdx::C100))
@@ -18,12 +16,12 @@ pub const SELECTED_STYLE: Style = Style::new()
     .bg(select_color_with_default_palette(PaletteIdx::C700))
     .add_modifier(Modifier::BOLD);
 pub const INFO_STYLE: Style = Style::new().fg(select_color_from_palette(
-    PaletteIdx::C400,
-    palette::tailwind::SKY,
+    PaletteIdx::C100,
+    palette::tailwind::ZINC,
 ));
 pub const WARN_STYLE: Style = Style::new().fg(select_color_from_palette(
     PaletteIdx::C400,
-    palette::tailwind::YELLOW,
+    palette::tailwind::ORANGE,
 ));
 pub const ERROR_STYLE: Style = Style::new().fg(select_color_from_palette(
     PaletteIdx::C400,

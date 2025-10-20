@@ -4,26 +4,22 @@ use std::ops::Range;
 use uuid::Uuid;
 
 lazy_static! {
-    // Leading header that can appear right at the beginning of the delta
     static ref LEADING_HEADER_RE: Regex = Regex::new(
         r"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}\] \[\w+\]\s*\n?"
     ).unwrap();
 
-    // Same header pattern but searched **everywhere** inside the delta
     static ref INLINE_HEADER_RE: Regex = Regex::new(
         r"\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}\] \[\w+\]\s*"
     ).unwrap();
 
-    // Marks the start of a regular log item
     static ref ITEM_SEP_RE: Regex =
         Regex::new(r"## \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}").unwrap();
 
-    // Parses a regular log item into timestamp + body
     static ref ITEM_PARSE_RE: Regex =
         Regex::new(r"(?s)^## (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s*(.*)").unwrap();
 
-    // Extracts:  [origin] LEVEL ## [TAG] message…
-    // IMPORTANT: In (?x) mode, `#` starts a comment. Escape the hashes as \#\#.
+    // extracts:  [origin] LEVEL ## [TAG] message…
+    // important: In (?x) mode, `#` starts a comment. Escape the hashes as \#\#.
     static ref CONTENT_HEADER_RE: Regex = Regex::new(
         r"(?xs)
           ^\[(?P<origin>[^\]]+)]\s*
@@ -43,7 +39,6 @@ pub struct LogItem {
     pub tag: String,
     pub content: String,
     pub raw_content: String,
-    pub folded_count: u32,
 }
 
 impl LogItem {
@@ -54,32 +49,13 @@ impl LogItem {
     }
 
     pub fn get_preview_text(&self, detail_level: u8) -> String {
-        let count_prefix = if self.folded_count > 1 {
-            format!("x{} ", self.folded_count)
-        } else {
-            String::new()
-        };
-
         let content = shorten_content(&self.content);
 
-        let base_format = match detail_level {
-            0 => content,
-            1 => format!("[{}] {}", self.time, content),
-            2 => format!("[{}] [{}] {}", self.time, self.level, content),
-            3 => format!(
-                "[{}] [{}] [{}] {}",
-                self.time, self.level, self.origin, content
-            ),
-            4 => format!(
-                "[{}] [{}] [{}] [{}] {}",
-                self.time, self.level, self.origin, self.tag, content
-            ),
-            _ => format!("[{}] {}", self.time, content), // default to level 1
-        };
+        let base_format = self.format_with_fields(detail_level, &content);
 
-        return format!("{}{}", count_prefix, base_format);
+        return base_format;
 
-        /// Split the content by \n, trim each item, and find the first trimmed item that is not empty
+        /// split the content by \n, trim each item, and find the first trimmed item that is not empty
         fn shorten_content(content: &str) -> String {
             let lines = content
                 .split('\n')
@@ -90,7 +66,70 @@ impl LogItem {
                     return line.to_string();
                 }
             }
-            return content.to_string();
+            content.to_string()
+        }
+    }
+
+    fn format_with_fields(&self, detail_level: u8, content: &str) -> String {
+        let field_order = [
+            ("time", &self.time),
+            ("tag", &self.tag),
+            ("origin", &self.origin),
+            ("level", &self.level),
+        ];
+
+        match detail_level {
+            0 => content.to_string(),
+            1 => {
+                let mut parts = Vec::new();
+                if let Some((_, field_value)) = field_order.first()
+                    && !field_value.is_empty()
+                {
+                    parts.push(format!("[{}]", field_value));
+                }
+                parts.push(content.to_string());
+                parts.join(" ")
+            }
+            2 => {
+                let mut parts = Vec::new();
+                for (_, field_value) in field_order.iter().take(2) {
+                    if !field_value.is_empty() {
+                        parts.push(format!("[{}]", field_value));
+                    }
+                }
+                parts.push(content.to_string());
+                parts.join(" ")
+            }
+            3 => {
+                let mut parts = Vec::new();
+                for (_, field_value) in field_order.iter().take(3) {
+                    if !field_value.is_empty() {
+                        parts.push(format!("[{}]", field_value));
+                    }
+                }
+                parts.push(content.to_string());
+                parts.join(" ")
+            }
+            4 => {
+                let mut parts = Vec::new();
+                for (_, field_value) in field_order.iter() {
+                    if !field_value.is_empty() {
+                        parts.push(format!("[{}]", field_value));
+                    }
+                }
+                parts.push(content.to_string());
+                parts.join(" ")
+            }
+            _ => {
+                let mut parts = Vec::new();
+                if let Some((_, field_value)) = field_order.first()
+                    && !field_value.is_empty()
+                {
+                    parts.push(format!("[{}]", field_value));
+                }
+                parts.push(content.to_string());
+                parts.join(" ")
+            }
         }
     }
 }
@@ -154,9 +193,8 @@ mod special_events {
                         origin: String::new(),
                         level: String::new(),
                         tag: String::new(),
-                        content: "DYEH PAUSE".to_string(),
-                        raw_content: "DYEH PAUSE".to_string(),
-                        folded_count: 1,
+                        content: "DYEH PAUSED".to_string(),
+                        raw_content: "DYEH PAUSED".to_string(),
                     },
                 })
                 .collect()
@@ -208,9 +246,8 @@ mod special_events {
                         origin: String::new(),
                         level: String::new(),
                         tag: String::new(),
-                        content: "DYEH RESUME".to_string(),
-                        raw_content: "DYEH RESUME".to_string(),
-                        folded_count: 1,
+                        content: "DYEH RESUMED".to_string(),
+                        raw_content: "DYEH RESUMED".to_string(),
                     },
                 })
                 .collect()
@@ -235,9 +272,9 @@ fn remove_inline_headers(s: &str) -> String {
     INLINE_HEADER_RE.replace_all(s, "").into_owned()
 }
 
-// Split “[origin] LEVEL ## [TAG] …” → (origin, level, tag, msg)
+// split "[origin] LEVEL ## [TAG] …" → (origin, level, tag, msg)
 fn split_header(line: &str) -> (String, String, String, String) {
-    // Be robust to BOM/control chars that might precede the first “[”.
+    // be robust to BOM/control chars that might precede the first "[".
     let line =
         line.trim_start_matches(|c: char| c.is_whitespace() || c == '\u{feff}' || c.is_control());
 
@@ -269,7 +306,6 @@ fn parse_structured(block: &str) -> Option<LogItem> {
             tag: String::new(),
             content: raw_content.clone(),
             raw_content,
-            folded_count: 1,
         }
     })
 }
@@ -298,15 +334,15 @@ pub fn process_delta(delta: &str) -> Vec<LogItem> {
     if !starts.is_empty() {
         starts.push(body.len()); // sentinel
         for win in starts.windows(2) {
-            if let [s, e] = *win {
-                if let Some(mut it) = parse_structured(&body[s..e]) {
-                    let (o, l, t, msg) = split_header(&it.content);
-                    it.origin = o;
-                    it.level = l;
-                    it.tag = t;
-                    it.content = msg;
-                    positioned.push((s, it));
-                }
+            if let [s, e] = *win
+                && let Some(mut it) = parse_structured(&body[s..e])
+            {
+                let (o, l, t, msg) = split_header(&it.content);
+                it.origin = o;
+                it.level = l;
+                it.tag = t;
+                it.content = msg;
+                positioned.push((s, it));
             }
         }
     }
@@ -315,11 +351,5 @@ pub fn process_delta(delta: &str) -> Vec<LogItem> {
     positioned.sort_by_key(|(pos, _)| *pos);
 
     /* 5 ── just return them – no collapsing ----------------------------- */
-    positioned
-        .into_iter()
-        .map(|(_, mut it)| {
-            it.folded_count = 1; // keep the field but force it to 1
-            it
-        })
-        .collect()
+    positioned.into_iter().map(|(_, it)| it).collect()
 }
