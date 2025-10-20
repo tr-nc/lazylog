@@ -35,7 +35,7 @@ impl Default for AppDesc {
     fn default() -> Self {
         Self {
             poll_interval: Duration::from_millis(100),
-            show_debug_logs: true,
+            show_debug_logs: false,
         }
     }
 }
@@ -438,7 +438,7 @@ impl App {
                 self.filter_input
             )
         } else {
-            "jk↑↓: prev/next | hl←→: h-scroll | Shift+scroll: h-scroll | gG: top/bottom | /: filter | y: copy | c: clear | q: quit"
+            "jk↑↓: prev/next | hl←→: h-scroll | Shift+scroll: h-scroll | gG: top/bottom | /: filter | d: toggle debug | y: copy | c: clear | q: quit"
                 .to_string()
         };
         Paragraph::new(help_text).centered().render(area, buf);
@@ -1350,12 +1350,19 @@ impl App {
                 Ok(())
             }
             KeyCode::Char('3') => {
-                self.set_hard_focused_block(self.debug_block.id());
+                if self.show_debug_logs {
+                    self.set_hard_focused_block(self.debug_block.id());
+                }
                 Ok(())
             }
             KeyCode::Char('w') => {
                 self.text_wrapping_enabled = !self.text_wrapping_enabled;
                 log::debug!("Text wrapping toggled: {}", self.text_wrapping_enabled);
+                Ok(())
+            }
+            KeyCode::Char('d') => {
+                self.show_debug_logs = !self.show_debug_logs;
+                log::debug!("Debug logs visibility toggled: {}", self.show_debug_logs);
                 Ok(())
             }
             KeyCode::Char('h') | KeyCode::Left => {
