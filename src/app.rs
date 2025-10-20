@@ -1,21 +1,21 @@
 use crate::{
     app_block::AppBlock,
-    content_line_maker::{calculate_content_width, content_into_lines, WrappingMode},
+    content_line_maker::{WrappingMode, calculate_content_width, content_into_lines},
     file_finder,
     log_list::LogList,
-    log_parser::{process_delta, LogItem},
+    log_parser::{LogItem, process_delta},
     metadata, theme,
     ui_logger::UiLogger,
 };
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use arboard::Clipboard;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, MouseEvent, MouseEventKind};
 use memmap2::MmapOptions;
 use ratatui::{
+    Terminal,
     backend::CrosstermBackend,
     prelude::*,
     widgets::{Padding, Paragraph, StatefulWidget, Widget},
-    Terminal,
 };
 use std::{
     fs::File,
@@ -28,12 +28,14 @@ use std::{
 #[derive(Clone)]
 pub struct AppDesc {
     pub poll_interval: Duration,
+    pub show_debug_logs: bool,
 }
 
 impl Default for AppDesc {
     fn default() -> Self {
         Self {
             poll_interval: Duration::from_millis(100),
+            show_debug_logs: true,
         }
     }
 }
@@ -83,6 +85,7 @@ struct App {
     last_details_area: Option<Rect>, // Store the last rendered details area
     last_debug_area: Option<Rect>, // Store the last rendered debug area
     text_wrapping_enabled: bool,  // Whether text wrapping is enabled (default false)
+    show_debug_logs: bool,        // Whether to show the debug logs block
 
     mouse_event: Option<MouseEvent>,
 }
@@ -99,7 +102,7 @@ impl App {
         debug_logs
     }
 
-    fn new(log_dir_path: PathBuf, _desc: AppDesc) -> Self {
+    fn new(log_dir_path: PathBuf, desc: AppDesc) -> Self {
         let debug_logs = Self::setup_logger();
 
         let preview_log_dirs = file_finder::find_preview_log_dirs(&log_dir_path);
@@ -145,6 +148,7 @@ impl App {
             last_details_area: None,
             last_debug_area: None,
             text_wrapping_enabled: false, // Default to no wrapping
+            show_debug_logs: desc.show_debug_logs,
 
             mouse_event: None,
         }
@@ -434,7 +438,7 @@ impl App {
                 self.filter_input
             )
         } else {
-            "jk↑↓: prev/next | hl←→: h-scroll | Shift+scroll: h-scroll | gG: top/bottom | /: filter | y: copy | c: clear | f: fold | q: quit"
+            "jk↑↓: prev/next | hl←→: h-scroll | Shift+scroll: h-scroll | gG: top/bottom | /: filter | y: copy | c: clear | q: quit"
                 .to_string()
         };
         Paragraph::new(help_text).centered().render(area, buf);
@@ -1241,10 +1245,6 @@ impl App {
         Ok(())
     }
 
-    fn fold_logs(&mut self) {
-        log::debug!("Fold functionality not yet implemented");
-    }
-
     fn clear_logs(&mut self) {
         self.raw_logs.clear();
         self.displaying_logs = LogList::new(Vec::new());
@@ -1292,10 +1292,6 @@ impl App {
                 } else {
                     self.clear_logs();
                 }
-                Ok(())
-            }
-            KeyCode::Char('f') => {
-                self.fold_logs();
                 Ok(())
             }
             KeyCode::Char('j') | KeyCode::Down => {
@@ -1479,20 +1475,34 @@ impl App {
 
 impl Widget for &mut App {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let [main, debug_area, footer_area] = Layout::vertical([
-            Constraint::Fill(1),
-            Constraint::Length(6),
-            Constraint::Length(1),
-        ])
-        .areas(area);
+        if self.show_debug_logs {
+            let [main, debug_area, footer_area] = Layout::vertical([
+                Constraint::Fill(1),
+                Constraint::Length(6),
+                Constraint::Length(1),
+            ])
+            .areas(area);
 
-        let [logs_area, details_area] =
-            Layout::vertical([Constraint::Percentage(60), Constraint::Percentage(40)]).areas(main);
+            let [logs_area, details_area] =
+                Layout::vertical([Constraint::Percentage(60), Constraint::Percentage(40)])
+                    .areas(main);
 
-        self.render_logs(logs_area, buf).unwrap();
-        self.render_details(details_area, buf).unwrap();
-        self.render_debug_logs(debug_area, buf).unwrap();
-        self.render_footer(footer_area, buf).unwrap();
+            self.render_logs(logs_area, buf).unwrap();
+            self.render_details(details_area, buf).unwrap();
+            self.render_debug_logs(debug_area, buf).unwrap();
+            self.render_footer(footer_area, buf).unwrap();
+        } else {
+            let [main, footer_area] =
+                Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
+
+            let [logs_area, details_area] =
+                Layout::vertical([Constraint::Percentage(60), Constraint::Percentage(40)])
+                    .areas(main);
+
+            self.render_logs(logs_area, buf).unwrap();
+            self.render_details(details_area, buf).unwrap();
+            self.render_footer(footer_area, buf).unwrap();
+        }
 
         self.clear_event();
     }

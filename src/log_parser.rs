@@ -39,7 +39,6 @@ pub struct LogItem {
     pub tag: String,
     pub content: String,
     pub raw_content: String,
-    pub folded_count: u32,
 }
 
 impl LogItem {
@@ -50,17 +49,11 @@ impl LogItem {
     }
 
     pub fn get_preview_text(&self, detail_level: u8) -> String {
-        let count_prefix = if self.folded_count > 1 {
-            format!("x{} ", self.folded_count)
-        } else {
-            String::new()
-        };
-
         let content = shorten_content(&self.content);
 
         let base_format = self.format_with_fields(detail_level, &content);
 
-        return format!("{}{}", count_prefix, base_format);
+        return base_format;
 
         /// split the content by \n, trim each item, and find the first trimmed item that is not empty
         fn shorten_content(content: &str) -> String {
@@ -202,7 +195,6 @@ mod special_events {
                         tag: String::new(),
                         content: "DYEH PAUSED".to_string(),
                         raw_content: "DYEH PAUSED".to_string(),
-                        folded_count: 1,
                     },
                 })
                 .collect()
@@ -256,7 +248,6 @@ mod special_events {
                         tag: String::new(),
                         content: "DYEH RESUMED".to_string(),
                         raw_content: "DYEH RESUMED".to_string(),
-                        folded_count: 1,
                     },
                 })
                 .collect()
@@ -315,7 +306,6 @@ fn parse_structured(block: &str) -> Option<LogItem> {
             tag: String::new(),
             content: raw_content.clone(),
             raw_content,
-            folded_count: 1,
         }
     })
 }
@@ -361,11 +351,5 @@ pub fn process_delta(delta: &str) -> Vec<LogItem> {
     positioned.sort_by_key(|(pos, _)| *pos);
 
     /* 5 ── just return them – no collapsing ----------------------------- */
-    positioned
-        .into_iter()
-        .map(|(_, mut it)| {
-            it.folded_count = 1; // keep the field but force it to 1
-            it
-        })
-        .collect()
+    positioned.into_iter().map(|(_, it)| it).collect()
 }
