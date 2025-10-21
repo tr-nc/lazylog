@@ -71,6 +71,7 @@ struct App {
     prev_meta: Option<metadata::MetaSnap>,
     autoscroll: bool,
     filter_input: String, // Current filter input text (includes leading '/')
+    filter_focused: bool, // Whether the filter input is focused
     detail_level: u8,     // Detail level for log display (0-4, default 1)
     debug_logs: Arc<Mutex<Vec<String>>>, // Debug log messages for UI display
     hard_focused_block_id: Option<uuid::Uuid>, // Hard focus: set by clicking, persists until another click
@@ -130,6 +131,7 @@ impl App {
             prev_meta: None,
             autoscroll: true,
             filter_input: String::new(),
+            filter_focused: false,
             detail_level: 1,
             debug_logs,
             hard_focused_block_id: None,
@@ -441,7 +443,19 @@ impl App {
         } else {
             "Press ? for help | q: quit".to_string()
         };
-        Paragraph::new(help_text).centered().render(area, buf);
+
+        let paragraph = if self.filter_focused {
+            // slightly lighter background when user can type
+            Paragraph::new(help_text)
+                .centered()
+                .bg(theme::select_color_with_default_palette(
+                    theme::PaletteIdx::C400,
+                ))
+        } else {
+            Paragraph::new(help_text).centered()
+        };
+
+        paragraph.render(area, buf);
         Ok(())
     }
 
@@ -1327,8 +1341,8 @@ impl App {
             }
         }
 
-        // handle filter input mode
-        if !self.filter_input.is_empty() {
+        // handle filter input mode when focused
+        if !self.filter_input.is_empty() && self.filter_focused {
             match key.code {
                 KeyCode::Char(c) => {
                     self.filter_input.push(c);
@@ -1337,10 +1351,21 @@ impl App {
                 }
                 KeyCode::Backspace => {
                     self.filter_input.pop();
-                    // if user deleted the '/', clear the filter
+                    // if user deleted the '/', clear the filter and unfocus
                     if self.filter_input.is_empty() {
+                        self.filter_focused = false;
                         self.apply_filter();
                     } else {
+                        self.apply_filter();
+                    }
+                    return Ok(());
+                }
+                KeyCode::Enter => {
+                    // unfocus the filter input, keep the filter active
+                    self.filter_focused = false;
+                    // if only a '/' is left, clear the filter
+                    if self.filter_input.len() == 1 {
+                        self.filter_input.clear();
                         self.apply_filter();
                     }
                     return Ok(());
@@ -1351,8 +1376,14 @@ impl App {
 
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => {
-                log::debug!("Exit key pressed");
-                self.is_exiting = true;
+                // if filter is active but not focused, clear it
+                if !self.filter_input.is_empty() && !self.filter_focused {
+                    self.filter_input.clear();
+                    self.apply_filter();
+                } else {
+                    log::debug!("Exit key pressed");
+                    self.is_exiting = true;
+                }
                 Ok(())
             }
             KeyCode::Char('c') => {
@@ -1387,6 +1418,7 @@ impl App {
             }
             KeyCode::Char('/') => {
                 self.filter_input = "/".to_string();
+                self.filter_focused = true;
                 Ok(())
             }
             KeyCode::Char('[') => {
