@@ -484,8 +484,6 @@ impl App {
             Line::from(""),
             Line::from("Focus:".bold()),
             Line::from("  1/2/3    - Focus on Logs/Details/Debug panel"),
-            Line::from(""),
-            Line::from("Other:".bold()),
             Line::from("  Shift+scroll - Horizontal scroll with mouse"),
             Line::from(""),
         ];
