@@ -1340,12 +1340,6 @@ impl App {
                     }
                     return Ok(());
                 }
-                KeyCode::Enter => {
-                    // clear the filter query
-                    self.filter_input.clear();
-                    self.apply_filter();
-                    return Ok(());
-                }
                 _ => {}
             }
         }
