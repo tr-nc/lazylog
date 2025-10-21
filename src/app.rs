@@ -491,7 +491,7 @@ impl App {
         ];
 
         let block = Block::default()
-            .title("Help - Press ? or Esc to close")
+            .title("Help - Press ? / q / Esc to close")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(theme::TEXT_FG_COLOR));
 
@@ -1317,7 +1317,7 @@ impl App {
         // help popup mode has higher priority than filter mode
         if self.show_help_popup {
             match key.code {
-                KeyCode::Char('?') | KeyCode::Esc => {
+                KeyCode::Char('?') | KeyCode::Char('q') | KeyCode::Esc => {
                     self.show_help_popup = false;
                     return Ok(());
                 }
