@@ -86,6 +86,7 @@ struct App {
     last_debug_area: Option<Rect>, // Store the last rendered debug area
     text_wrapping_enabled: bool,  // Whether text wrapping is enabled (default false)
     show_debug_logs: bool,        // Whether to show the debug logs block
+    show_help_popup: bool,        // Whether to show the help popup
 
     mouse_event: Option<MouseEvent>,
 }
@@ -149,6 +150,7 @@ impl App {
             last_debug_area: None,
             text_wrapping_enabled: false, // Default to no wrapping
             show_debug_logs: desc.show_debug_logs,
+            show_help_popup: false, // Default to no help popup
 
             mouse_event: None,
         }
@@ -438,10 +440,66 @@ impl App {
                 self.filter_input
             )
         } else {
-            "jk↑↓: prev/next | hl←→: h-scroll | Shift+scroll: h-scroll | gG: top/bottom | /: filter | d: toggle debug | y: copy | c: clear | q: quit"
-                .to_string()
+            "Press ? for help | q: quit".to_string()
         };
         Paragraph::new(help_text).centered().render(area, buf);
+        Ok(())
+    }
+
+    fn render_help_popup(&self, area: Rect, buf: &mut Buffer) -> Result<()> {
+        use ratatui::widgets::{Block, Borders, Clear};
+
+        // center the popup
+        let popup_area = Layout::vertical([
+            Constraint::Fill(1),
+            Constraint::Length(20),
+            Constraint::Fill(1),
+        ])
+        .split(area)[1];
+
+        let popup_area = Layout::horizontal([
+            Constraint::Fill(1),
+            Constraint::Length(60),
+            Constraint::Fill(1),
+        ])
+        .split(popup_area)[1];
+
+        // clear the area first
+        Clear.render(popup_area, buf);
+
+        let help_text = vec![
+            Line::from(""),
+            Line::from("Navigation:".bold()),
+            Line::from("  j/k/↑/↓  - Move to prev/next log"),
+            Line::from("  g/G      - Jump to top/bottom"),
+            Line::from("  h/l/←/→  - Horizontal scroll"),
+            Line::from(""),
+            Line::from("Actions:".bold()),
+            Line::from("  /        - Enter filter mode"),
+            Line::from("  y        - Copy current log to clipboard"),
+            Line::from("  c        - Clear all logs"),
+            Line::from("  d        - Toggle debug logs panel"),
+            Line::from("  w        - Toggle text wrapping"),
+            Line::from("  [/]      - Decrease/increase detail level"),
+            Line::from(""),
+            Line::from("Focus:".bold()),
+            Line::from("  1/2/3    - Focus on Logs/Details/Debug panel"),
+            Line::from(""),
+            Line::from("Other:".bold()),
+            Line::from("  Shift+scroll - Horizontal scroll with mouse"),
+            Line::from(""),
+        ];
+
+        let block = Block::default()
+            .title("Help - Press ? or Esc to close")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme::TEXT_FG_COLOR));
+
+        Paragraph::new(help_text)
+            .block(block)
+            .fg(theme::TEXT_FG_COLOR)
+            .render(popup_area, buf);
+
         Ok(())
     }
 
@@ -1256,6 +1314,17 @@ impl App {
             return Ok(());
         }
 
+        // help popup mode has higher priority than filter mode
+        if self.show_help_popup {
+            match key.code {
+                KeyCode::Char('?') | KeyCode::Esc => {
+                    self.show_help_popup = false;
+                    return Ok(());
+                }
+                _ => return Ok(()),
+            }
+        }
+
         if self.filter_mode {
             match key.code {
                 KeyCode::Esc => {
@@ -1375,6 +1444,10 @@ impl App {
                 if let Some(focused_block) = self.get_display_focused_block() {
                     self.handle_horizontal_scrolling(focused_block, true)?;
                 }
+                Ok(())
+            }
+            KeyCode::Char('?') => {
+                self.show_help_popup = !self.show_help_popup;
                 Ok(())
             }
             _ => Ok(()),
@@ -1509,6 +1582,11 @@ impl Widget for &mut App {
             self.render_logs(logs_area, buf).unwrap();
             self.render_details(details_area, buf).unwrap();
             self.render_footer(footer_area, buf).unwrap();
+        }
+
+        // render help popup on top if visible
+        if self.show_help_popup {
+            self.render_help_popup(area, buf).unwrap();
         }
 
         self.clear_event();
