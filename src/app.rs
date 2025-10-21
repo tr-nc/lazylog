@@ -70,10 +70,9 @@ struct App {
     last_len: u64,
     prev_meta: Option<metadata::MetaSnap>,
     autoscroll: bool,
-    filter_mode: bool,                         // Whether we're in filter input mode
-    filter_input: String,                      // Current filter input text
-    detail_level: u8,                          // Detail level for log display (0-4, default 1)
-    debug_logs: Arc<Mutex<Vec<String>>>,       // Debug log messages for UI display
+    filter_input: String, // Current filter input text (includes leading '/')
+    detail_level: u8,     // Detail level for log display (0-4, default 1)
+    debug_logs: Arc<Mutex<Vec<String>>>, // Debug log messages for UI display
     hard_focused_block_id: Option<uuid::Uuid>, // Hard focus: set by clicking, persists until another click
     soft_focused_block_id: Option<uuid::Uuid>, // Soft focus: set by hovering, changes with mouse movement
     logs_block: AppBlock,
@@ -130,7 +129,6 @@ impl App {
             last_len: 0,
             prev_meta: None,
             autoscroll: true,
-            filter_mode: false,
             filter_input: String::new(),
             detail_level: 1,
             debug_logs,
@@ -307,7 +305,8 @@ impl App {
                     );
                     self.raw_logs.extend(new_items);
 
-                    if self.filter_input.is_empty() {
+                    let filter_query = self.get_filter_query();
+                    if filter_query.is_empty() {
                         self.displaying_logs = LogList::new(self.raw_logs.clone());
                     } else {
                         self.rebuild_filtered_list();
@@ -372,6 +371,15 @@ impl App {
         }
     }
 
+    fn get_filter_query(&self) -> &str {
+        // filter_input includes the leading '/', so skip it
+        if self.filter_input.starts_with('/') && self.filter_input.len() > 1 {
+            &self.filter_input[1..]
+        } else {
+            ""
+        }
+    }
+
     fn apply_filter(&mut self) {
         let previous_uuid = self.selected_log_uuid;
         let prev_scroll_pos = self.logs_block.get_scroll_position();
@@ -400,24 +408,18 @@ impl App {
     }
 
     fn rebuild_filtered_list(&mut self) {
-        if self.filter_input.is_empty() {
+        let filter_query = self.get_filter_query();
+        if filter_query.is_empty() {
             self.displaying_logs = LogList::new(self.raw_logs.clone());
         } else {
             let filtered_items: Vec<LogItem> = self
                 .raw_logs
                 .iter()
-                .filter(|item| item.contains(&self.filter_input))
+                .filter(|item| item.contains(filter_query))
                 .cloned()
                 .collect();
             self.displaying_logs = LogList::new(filtered_items);
         }
-    }
-
-    fn exit_filter_mode(&mut self) {
-        self.filter_mode = false;
-        self.filter_input.clear();
-        self.displaying_logs = LogList::new(self.raw_logs.clone());
-        self.displaying_logs.select_first();
     }
 
     fn update_logs_scrollbar_state(&mut self) {
@@ -434,11 +436,8 @@ impl App {
     }
 
     fn render_footer(&self, area: Rect, buf: &mut Buffer) -> Result<()> {
-        let help_text = if self.filter_mode {
-            format!(
-                "Filter: {} (Press Enter to apply, Esc to cancel)",
-                self.filter_input
-            )
+        let help_text = if !self.filter_input.is_empty() {
+            self.filter_input.clone()
         } else {
             "Press ? for help | q: quit".to_string()
         };
@@ -1312,7 +1311,7 @@ impl App {
             return Ok(());
         }
 
-        // help popup mode has higher priority than filter mode
+        // help popup mode has higher priority
         if self.show_help_popup {
             match key.code {
                 KeyCode::Char('?') | KeyCode::Char('q') | KeyCode::Esc => {
@@ -1323,28 +1322,32 @@ impl App {
             }
         }
 
-        if self.filter_mode {
+        // handle filter input mode
+        if !self.filter_input.is_empty() {
             match key.code {
-                KeyCode::Esc => {
-                    self.exit_filter_mode();
-                    return Ok(());
-                }
-                KeyCode::Enter => {
-                    self.apply_filter();
-                    self.filter_mode = false;
-                    return Ok(());
-                }
                 KeyCode::Char(c) => {
                     self.filter_input.push(c);
+                    self.apply_filter();
                     return Ok(());
                 }
                 KeyCode::Backspace => {
                     self.filter_input.pop();
+                    // if user deleted the '/', clear the filter
+                    if self.filter_input.is_empty() {
+                        self.apply_filter();
+                    } else {
+                        self.apply_filter();
+                    }
+                    return Ok(());
+                }
+                KeyCode::Enter => {
+                    // clear the filter query
+                    self.filter_input.clear();
+                    self.apply_filter();
                     return Ok(());
                 }
                 _ => {}
             }
-            return Ok(());
         }
 
         match key.code {
@@ -1384,8 +1387,7 @@ impl App {
                 Ok(())
             }
             KeyCode::Char('/') => {
-                self.filter_mode = true;
-                self.filter_input.clear();
+                self.filter_input = "/".to_string();
                 Ok(())
             }
             KeyCode::Char('[') => {
