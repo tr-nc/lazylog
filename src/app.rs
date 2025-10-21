@@ -513,11 +513,16 @@ impl App {
         let is_log_focused = self.is_log_block_focused().unwrap_or(false);
 
         let title = if self.log_file_path.exists() {
-            let mut display_content = format!(
-                "[1]─Logs | {} / {}",
-                self.displaying_logs.items.len(),
-                self.raw_logs.len()
-            );
+            let filter_query = self.get_filter_query();
+            let mut display_content = if filter_query.is_empty() {
+                format!("[1]─Logs | {}", self.raw_logs.len())
+            } else {
+                format!(
+                    "[1]─Logs | {} / {}",
+                    self.displaying_logs.items.len(),
+                    self.raw_logs.len()
+                )
+            };
             if self.autoscroll {
                 display_content += " | Autoscrolling";
             }
