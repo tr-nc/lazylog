@@ -116,7 +116,7 @@ struct App {
     show_debug_logs: bool,        // Whether to show the debug logs block
     show_help_popup: bool,        // Whether to show the help popup
     display_event: Option<DisplayEvent>, // Temporary event to display in footer
-    viewport_adjustment_delay: u8, // Countdown to trigger viewport adjustment (2 = just changed, 1 = adjust, 0 = idle)
+    prev_hard_focused_block_id: Option<uuid::Uuid>, // Track previous hard focus to detect changes
 
     mouse_event: Option<MouseEvent>,
 }
@@ -176,7 +176,7 @@ impl App {
             show_debug_logs: desc.show_debug_logs,
             show_help_popup: false,
             display_event: None,
-            viewport_adjustment_delay: 0,
+            prev_hard_focused_block_id: None,
 
             mouse_event: None,
         }
@@ -1462,9 +1462,6 @@ impl App {
 
     fn set_hard_focused_block(&mut self, block_id: uuid::Uuid) {
         self.hard_focused_block_id = Some(block_id);
-        // set delay to 2: next render decrements to 1, then adjust viewport
-        // this ensures viewport adjustment happens AFTER new layout is applied
-        self.viewport_adjustment_delay = 2;
     }
 
     fn set_soft_focused_block(&mut self, block_id: uuid::Uuid) {
@@ -1578,6 +1575,9 @@ impl App {
 
 impl Widget for &mut App {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        // detect if hard focus changed since last render
+        let focus_changed = self.hard_focused_block_id != self.prev_hard_focused_block_id;
+
         // determine dynamic layout based on hard focus
         let (logs_percentage, details_percentage) = match self.hard_focused_block_id {
             Some(id) if id == self.logs_block.id() => (60, 40),
@@ -1623,14 +1623,11 @@ impl Widget for &mut App {
             self.render_help_popup(area, buf).unwrap();
         }
 
-        // handle viewport adjustment countdown for focus changes
-        // delay ensures adjustment happens after new layout is applied
-        if self.viewport_adjustment_delay > 0 {
-            self.viewport_adjustment_delay -= 1;
-            if self.viewport_adjustment_delay == 0 {
-                log::debug!("Adjusting viewport after focus change");
-                let _ = self.ensure_selection_visible();
-            }
+        // adjust viewport if hard focus changed (panels resized)
+        if focus_changed {
+            log::debug!("Hard focus changed, adjusting viewport");
+            let _ = self.ensure_selection_visible();
+            self.prev_hard_focused_block_id = self.hard_focused_block_id;
         }
 
         self.clear_event();
