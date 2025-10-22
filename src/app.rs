@@ -1383,11 +1383,31 @@ impl App {
                 Ok(())
             }
             KeyCode::Char('j') | KeyCode::Down => {
-                self.handle_log_item_scrolling(true, true)?;
+                if let Some(focused_block) = self.get_display_focused_block() {
+                    if focused_block == self.details_block.id() {
+                        self.handle_details_block_scrolling(true)?;
+                    } else if focused_block == self.debug_block.id() {
+                        self.handle_debug_logs_scrolling(true)?;
+                    } else {
+                        self.handle_log_item_scrolling(true, true)?;
+                    }
+                } else {
+                    self.handle_log_item_scrolling(true, true)?;
+                }
                 Ok(())
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                self.handle_log_item_scrolling(false, true)?;
+                if let Some(focused_block) = self.get_display_focused_block() {
+                    if focused_block == self.details_block.id() {
+                        self.handle_details_block_scrolling(false)?;
+                    } else if focused_block == self.debug_block.id() {
+                        self.handle_debug_logs_scrolling(false)?;
+                    } else {
+                        self.handle_log_item_scrolling(false, true)?;
+                    }
+                } else {
+                    self.handle_log_item_scrolling(false, true)?;
+                }
                 Ok(())
             }
             KeyCode::Char(' ') => {
