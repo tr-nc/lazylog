@@ -150,9 +150,9 @@ impl App {
             last_logs_area: None,
             last_details_area: None,
             last_debug_area: None,
-            text_wrapping_enabled: false, // Default to no wrapping
+            text_wrapping_enabled: true,
             show_debug_logs: desc.show_debug_logs,
-            show_help_popup: false, // Default to no help popup
+            show_help_popup: false,
 
             mouse_event: None,
         }
@@ -393,7 +393,6 @@ impl App {
         Clear.render(popup_area, buf);
 
         let help_text = vec![
-            Line::from(""),
             Line::from("Navigation:".bold()),
             Line::from("  j/k/↑/↓  - Move to prev/next log"),
             Line::from("  space    - Jump to top"),
@@ -404,7 +403,8 @@ impl App {
             Line::from("  c        - Clear all logs"),
             Line::from("  d        - Toggle debug logs panel"),
             Line::from("  w        - Toggle text wrapping"),
-            Line::from("  [/]      - Decrease/increase detail level"),
+            Line::from("  [        - Decrease detail level"),
+            Line::from("  ]        - Increase detail level"),
             Line::from(""),
             Line::from("Focus:".bold()),
             Line::from("  1/2/3    - Focus on Logs/Details/Debug panel"),
@@ -417,7 +417,7 @@ impl App {
         ];
 
         let block = Block::default()
-            .title("Help-esc to close")
+            .title("Help")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(theme::TEXT_FG_COLOR));
 
