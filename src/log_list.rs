@@ -105,12 +105,4 @@ impl LogList {
             self.state.select(Some(0));
         }
     }
-
-    pub fn select_last(&mut self) {
-        if self.items.is_empty() {
-            self.state.select(None);
-        } else {
-            self.state.select(Some(self.items.len() - 1));
-        }
-    }
 }
