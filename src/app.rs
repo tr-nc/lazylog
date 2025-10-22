@@ -298,6 +298,14 @@ impl App {
         let previous_uuid = self.selected_log_uuid;
         let prev_scroll_pos = self.logs_block.get_scroll_position();
 
+        // calculate the relative position of the selected item in the viewport
+        let prev_relative_offset = if let Some(selected_idx) = self.displaying_logs.state.selected()
+        {
+            selected_idx.saturating_sub(prev_scroll_pos)
+        } else {
+            0
+        };
+
         self.rebuild_filtered_list();
 
         if previous_uuid.is_some() {
@@ -320,7 +328,16 @@ impl App {
             if new_total == 0 {
                 pos = 0;
             } else {
-                pos = pos.min(new_total.saturating_sub(1));
+                // try to preserve the relative screen position of the selected item
+                if let Some(selected_idx) = self.displaying_logs.state.selected() {
+                    // calculate desired scroll position to maintain relative offset
+                    let desired_scroll = selected_idx.saturating_sub(prev_relative_offset);
+                    // clamp to valid range
+                    pos = desired_scroll.min(new_total.saturating_sub(1));
+                } else {
+                    // fallback to previous scroll position
+                    pos = pos.min(new_total.saturating_sub(1));
+                }
             }
             self.logs_block.set_scroll_position(pos);
             self.logs_block.set_lines_count(new_total);
