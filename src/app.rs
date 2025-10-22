@@ -352,7 +352,7 @@ impl App {
         let help_text = if !self.filter_input.is_empty() {
             self.filter_input.clone()
         } else {
-            "Press ? for help | q: quit".to_string()
+            "?: help | q: quit".to_string()
         };
 
         let paragraph = if self.filter_focused {
@@ -438,16 +438,16 @@ impl App {
 
         let filter_query = self.get_filter_query();
         let mut title = if filter_query.is_empty() {
-            format!("[1]─Logs | {}", self.raw_logs.len())
+            format!("[1]─Logs-{}", self.raw_logs.len())
         } else {
             format!(
-                "[1]─Logs | {} / {}",
+                "[1]─Logs-{} / {}",
                 self.displaying_logs.items.len(),
                 self.raw_logs.len()
             )
         };
         if self.autoscroll {
-            title += " | Autoscrolling";
+            title += "-Autoscrolling";
         }
         self.logs_block.update_title(title);
         let logs_block_id = self.logs_block.id();
