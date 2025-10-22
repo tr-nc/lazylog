@@ -33,7 +33,10 @@ pub const DEBUG_STYLE: Style = Style::new().fg(select_color_from_palette(
 ));
 pub const DISPLAY_EVENT_STYLE: Style = Style::new()
     .fg(select_color_with_default_palette(PaletteIdx::C100))
-    .bg(select_color_with_default_palette(PaletteIdx::C600))
+    .bg(select_color_from_palette(
+        PaletteIdx::C400,
+        palette::tailwind::ORANGE,
+    ))
     .add_modifier(Modifier::BOLD);
 
 pub enum PaletteIdx {
