@@ -302,6 +302,13 @@ impl App {
 
         if previous_uuid.is_some() {
             self.update_selection_by_uuid();
+
+            // if the previously selected item is no longer in the filtered list,
+            // select the first available item
+            if self.selected_log_uuid.is_none() && !self.displaying_logs.items.is_empty() {
+                self.displaying_logs.select_first();
+                self.update_selected_uuid();
+            }
         } else if self.autoscroll {
             self.displaying_logs.select_first();
             self.update_selected_uuid();
@@ -319,6 +326,9 @@ impl App {
             self.logs_block.set_lines_count(new_total);
             self.logs_block.update_scrollbar_state(new_total, Some(pos));
         }
+
+        // ensure the selected item is scrolled into view after filter changes
+        let _ = self.ensure_selection_visible();
     }
 
     fn rebuild_filtered_list(&mut self) {
