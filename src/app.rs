@@ -58,8 +58,9 @@ pub fn start_with_desc(
 ) -> Result<()> {
     color_eyre::install().or(Err(anyhow!("Error installing color_eyre")))?;
 
+    // DYEH 540 adaptation: point to parent directory to support both "Logs" and "Log" subdirectories
     let log_dir_path = match dirs::home_dir() {
-        Some(path) => path.join("Library/Application Support/DouyinAR/Logs"),
+        Some(path) => path.join("Library/Application Support/DouyinAR"),
         None => {
             return Err(anyhow!("Error getting home directory"));
         }

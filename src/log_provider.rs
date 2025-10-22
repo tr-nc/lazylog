@@ -39,7 +39,19 @@ pub struct DyehLogProvider {
 
 impl DyehLogProvider {
     pub fn new(log_dir_path: PathBuf) -> Self {
-        let preview_log_dirs = file_finder::find_preview_log_dirs(&log_dir_path);
+        // DYEH 540 adaptation: check both "Logs" and "Log" subdirectories
+        let mut preview_log_dirs = Vec::new();
+
+        let logs_path = log_dir_path.join("Logs");
+        if logs_path.exists() {
+            preview_log_dirs.extend(file_finder::find_preview_log_dirs(&logs_path));
+        }
+
+        let log_path = log_dir_path.join("Log");
+        if log_path.exists() {
+            preview_log_dirs.extend(file_finder::find_preview_log_dirs(&log_path));
+        }
+
         let log_file_path = match file_finder::find_latest_live_log(preview_log_dirs) {
             Ok(path) => {
                 log::debug!(
@@ -63,7 +75,19 @@ impl DyehLogProvider {
     }
 
     fn check_for_newer_log_file(&self) -> Result<Option<PathBuf>> {
-        let preview_log_dirs = file_finder::find_preview_log_dirs(&self.log_dir_path);
+        // DYEH 540 adaptation: check both "Logs" and "Log" subdirectories
+        let mut preview_log_dirs = Vec::new();
+
+        let logs_path = self.log_dir_path.join("Logs");
+        if logs_path.exists() {
+            preview_log_dirs.extend(file_finder::find_preview_log_dirs(&logs_path));
+        }
+
+        let log_path = self.log_dir_path.join("Log");
+        if log_path.exists() {
+            preview_log_dirs.extend(file_finder::find_preview_log_dirs(&log_path));
+        }
+
         match file_finder::find_latest_live_log(preview_log_dirs) {
             Ok(latest_file_path) => {
                 if !self.log_file_path.exists() {
