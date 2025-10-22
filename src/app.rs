@@ -104,7 +104,7 @@ struct App {
     filter_focused: bool, // Whether the filter input is focused
     detail_level: u8,     // Detail level for log display (0-4, default 1)
     debug_logs: Arc<Mutex<Vec<String>>>, // Debug log messages for UI display
-    hard_focused_block_id: Option<uuid::Uuid>, // Hard focus: set by clicking, persists until another click
+    hard_focused_block_id: uuid::Uuid, // Hard focus: set by clicking, persists until another click (defaults to logs_block)
     soft_focused_block_id: Option<uuid::Uuid>, // Soft focus: set by hovering, changes with mouse movement
     logs_block: AppBlock,
     details_block: AppBlock,
@@ -118,7 +118,7 @@ struct App {
     show_debug_logs: bool,        // Whether to show the debug logs block
     show_help_popup: bool,        // Whether to show the help popup
     display_event: Option<DisplayEvent>, // Temporary event to display in footer
-    prev_hard_focused_block_id: Option<uuid::Uuid>, // Track previous hard focus to detect changes
+    prev_hard_focused_block_id: uuid::Uuid, // Track previous hard focus to detect changes
 
     mouse_event: Option<MouseEvent>,
 }
@@ -148,6 +148,17 @@ impl App {
         let (provider_thread, provider_stop_signal) =
             spawn_provider_thread(provider, producer, poll_interval);
 
+        // create blocks first so we can reference their IDs
+        let logs_block = AppBlock::new().set_title("[1]─Logs".to_string());
+        let details_block = AppBlock::new()
+            .set_title("[2]─Details")
+            .set_padding(Padding::horizontal(1));
+        let debug_block = AppBlock::new()
+            .set_title("[3]─Debug Logs")
+            .set_padding(Padding::horizontal(1));
+
+        let logs_block_id = logs_block.id();
+
         Self {
             is_exiting: false,
             raw_logs: Vec::new(),
@@ -160,15 +171,11 @@ impl App {
             filter_focused: false,
             detail_level: 1,
             debug_logs,
-            hard_focused_block_id: None,
+            hard_focused_block_id: logs_block_id,
             soft_focused_block_id: None,
-            logs_block: AppBlock::new().set_title("[1]─Logs".to_string()),
-            details_block: AppBlock::new()
-                .set_title("[2]─Details")
-                .set_padding(Padding::horizontal(1)),
-            debug_block: AppBlock::new()
-                .set_title("[3]─Debug Logs")
-                .set_padding(Padding::horizontal(1)),
+            logs_block,
+            details_block,
+            debug_block,
             prev_selected_log_id: None,
             selected_log_uuid: None,
             last_logs_area: None,
@@ -178,7 +185,7 @@ impl App {
             show_debug_logs: desc.show_debug_logs,
             show_help_popup: false,
             display_event: None,
-            prev_hard_focused_block_id: None,
+            prev_hard_focused_block_id: logs_block_id,
 
             mouse_event: None,
         }
@@ -189,8 +196,6 @@ impl App {
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
         desc: &AppDesc,
     ) -> Result<()> {
-        self.set_hard_focused_block(self.logs_block.id());
-
         let poll_interval = desc.poll_interval;
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<()> {
@@ -698,7 +703,7 @@ impl App {
     fn render_details(&mut self, area: Rect, buf: &mut Buffer) -> Result<()> {
         self.last_details_area = Some(area);
         let details_block_id = self.details_block.id();
-        let is_focused = self.get_display_focused_block() == Some(details_block_id);
+        let is_focused = self.get_display_focused_block() == details_block_id;
 
         let should_hard_focus = if let Some(event) = self.mouse_event {
             let is_left_click = event.kind
@@ -856,7 +861,7 @@ impl App {
     fn render_debug_logs(&mut self, area: Rect, buf: &mut Buffer) -> Result<()> {
         self.last_debug_area = Some(area);
         let debug_block_id = self.debug_block.id();
-        let is_focused = self.get_display_focused_block() == Some(debug_block_id);
+        let is_focused = self.get_display_focused_block() == debug_block_id;
 
         let should_hard_focus = if let Some(event) = self.mouse_event {
             let is_left_click = event.kind
@@ -986,7 +991,7 @@ impl App {
     }
 
     fn is_log_block_focused(&self) -> Result<bool> {
-        Ok(self.get_display_focused_block() == Some(self.logs_block.id()))
+        Ok(self.get_display_focused_block() == self.logs_block.id())
     }
 
     fn ensure_selection_visible(&mut self) -> Result<()> {
@@ -1383,28 +1388,22 @@ impl App {
                 Ok(())
             }
             KeyCode::Char('j') | KeyCode::Down => {
-                if let Some(focused_block) = self.get_display_focused_block() {
-                    if focused_block == self.details_block.id() {
-                        self.handle_details_block_scrolling(true)?;
-                    } else if focused_block == self.debug_block.id() {
-                        self.handle_debug_logs_scrolling(true)?;
-                    } else {
-                        self.handle_log_item_scrolling(true, true)?;
-                    }
+                let focused_block = self.get_display_focused_block();
+                if focused_block == self.details_block.id() {
+                    self.handle_details_block_scrolling(true)?;
+                } else if focused_block == self.debug_block.id() {
+                    self.handle_debug_logs_scrolling(true)?;
                 } else {
                     self.handle_log_item_scrolling(true, true)?;
                 }
                 Ok(())
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                if let Some(focused_block) = self.get_display_focused_block() {
-                    if focused_block == self.details_block.id() {
-                        self.handle_details_block_scrolling(false)?;
-                    } else if focused_block == self.debug_block.id() {
-                        self.handle_debug_logs_scrolling(false)?;
-                    } else {
-                        self.handle_log_item_scrolling(false, true)?;
-                    }
+                let focused_block = self.get_display_focused_block();
+                if focused_block == self.details_block.id() {
+                    self.handle_details_block_scrolling(false)?;
+                } else if focused_block == self.debug_block.id() {
+                    self.handle_debug_logs_scrolling(false)?;
                 } else {
                     self.handle_log_item_scrolling(false, true)?;
                 }
@@ -1467,15 +1466,13 @@ impl App {
                 Ok(())
             }
             KeyCode::Char('h') | KeyCode::Left => {
-                if let Some(focused_block) = self.get_display_focused_block() {
-                    self.handle_horizontal_scrolling(focused_block, false)?;
-                }
+                let focused_block = self.get_display_focused_block();
+                self.handle_horizontal_scrolling(focused_block, false)?;
                 Ok(())
             }
             KeyCode::Char('l') | KeyCode::Right => {
-                if let Some(focused_block) = self.get_display_focused_block() {
-                    self.handle_horizontal_scrolling(focused_block, true)?;
-                }
+                let focused_block = self.get_display_focused_block();
+                self.handle_horizontal_scrolling(focused_block, true)?;
                 Ok(())
             }
             KeyCode::Char('?') => {
@@ -1487,7 +1484,7 @@ impl App {
     }
 
     fn set_hard_focused_block(&mut self, block_id: uuid::Uuid) {
-        self.hard_focused_block_id = Some(block_id);
+        self.hard_focused_block_id = block_id;
     }
 
     fn set_soft_focused_block(&mut self, block_id: uuid::Uuid) {
@@ -1496,8 +1493,8 @@ impl App {
         }
     }
 
-    fn get_display_focused_block(&self) -> Option<uuid::Uuid> {
-        self.hard_focused_block_id.or(self.soft_focused_block_id)
+    fn get_display_focused_block(&self) -> uuid::Uuid {
+        self.hard_focused_block_id
     }
 
     fn is_mouse_in_area(&self, mouse: &MouseEvent, area: Rect) -> bool {
@@ -1606,11 +1603,14 @@ impl Widget for &mut App {
         let focus_changed = self.hard_focused_block_id != self.prev_hard_focused_block_id;
 
         // determine dynamic layout based on hard focus
-        let (logs_percentage, details_percentage) = match self.hard_focused_block_id {
-            Some(id) if id == self.logs_block.id() => (60, 40),
-            Some(id) if id == self.details_block.id() => (40, 60),
-            _ => (60, 40), // default when no hard focus or other block focused
-        };
+        let (logs_percentage, details_percentage) =
+            if self.hard_focused_block_id == self.logs_block.id() {
+                (60, 40)
+            } else if self.hard_focused_block_id == self.details_block.id() {
+                (40, 60)
+            } else {
+                (60, 40) // default for debug block or any other case
+            };
 
         if self.show_debug_logs {
             let [main, debug_area, footer_area] = Layout::vertical([
