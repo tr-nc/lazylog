@@ -116,6 +116,7 @@ struct App {
     show_debug_logs: bool,        // Whether to show the debug logs block
     show_help_popup: bool,        // Whether to show the help popup
     display_event: Option<DisplayEvent>, // Temporary event to display in footer
+    need_viewport_adjustment: bool, // Flag to trigger viewport adjustment after focus change
 
     mouse_event: Option<MouseEvent>,
 }
@@ -175,6 +176,7 @@ impl App {
             show_debug_logs: desc.show_debug_logs,
             show_help_popup: false,
             display_event: None,
+            need_viewport_adjustment: false,
 
             mouse_event: None,
         }
@@ -1460,6 +1462,8 @@ impl App {
 
     fn set_hard_focused_block(&mut self, block_id: uuid::Uuid) {
         self.hard_focused_block_id = Some(block_id);
+        // flag that we need to adjust viewport after the next render with new sizes
+        self.need_viewport_adjustment = true;
     }
 
     fn set_soft_focused_block(&mut self, block_id: uuid::Uuid) {
@@ -1573,6 +1577,13 @@ impl App {
 
 impl Widget for &mut App {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        // determine dynamic layout based on hard focus
+        let (logs_percentage, details_percentage) = match self.hard_focused_block_id {
+            Some(id) if id == self.logs_block.id() => (60, 40),
+            Some(id) if id == self.details_block.id() => (40, 60),
+            _ => (60, 40), // default when no hard focus or other block focused
+        };
+
         if self.show_debug_logs {
             let [main, debug_area, footer_area] = Layout::vertical([
                 Constraint::Fill(1),
@@ -1581,9 +1592,11 @@ impl Widget for &mut App {
             ])
             .areas(area);
 
-            let [logs_area, details_area] =
-                Layout::vertical([Constraint::Percentage(60), Constraint::Percentage(40)])
-                    .areas(main);
+            let [logs_area, details_area] = Layout::vertical([
+                Constraint::Percentage(logs_percentage),
+                Constraint::Percentage(details_percentage),
+            ])
+            .areas(main);
 
             self.render_logs(logs_area, buf).unwrap();
             self.render_details(details_area, buf).unwrap();
@@ -1593,9 +1606,11 @@ impl Widget for &mut App {
             let [main, footer_area] =
                 Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
 
-            let [logs_area, details_area] =
-                Layout::vertical([Constraint::Percentage(60), Constraint::Percentage(40)])
-                    .areas(main);
+            let [logs_area, details_area] = Layout::vertical([
+                Constraint::Percentage(logs_percentage),
+                Constraint::Percentage(details_percentage),
+            ])
+            .areas(main);
 
             self.render_logs(logs_area, buf).unwrap();
             self.render_details(details_area, buf).unwrap();
@@ -1605,6 +1620,14 @@ impl Widget for &mut App {
         // render help popup on top if visible
         if self.show_help_popup {
             self.render_help_popup(area, buf).unwrap();
+        }
+
+        // ensure selected item in logs block stays visible after viewport size changes
+        // (only when hard focus changes and panels resize, not on every render)
+        if self.need_viewport_adjustment {
+            log::debug!("Need viewport adj");
+            let _ = self.ensure_selection_visible();
+            self.need_viewport_adjustment = false;
         }
 
         self.clear_event();
