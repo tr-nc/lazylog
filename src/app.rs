@@ -418,18 +418,44 @@ impl App {
             ("?: help | q: quit".to_string(), None)
         };
 
+        // hide version when display event is showing or during filtering
+        let show_version = self.display_event.is_none() && self.filter_input.is_empty();
+
+        let version = env!("CARGO_PKG_VERSION");
+        let version_text = format!("v{}", version);
+
+        // calculate spacing to position version on the right
+        let help_len = help_text.chars().count();
+        let version_len = version_text.chars().count();
+        let total_width = area.width as usize;
+
+        // create a line with help text on left/center and version on right
+        let line = if show_version && total_width > help_len + version_len + 2 {
+            // enough space to show both
+            let padding = total_width.saturating_sub(help_len + version_len);
+            let left_padding = padding / 2;
+            let right_padding = padding.saturating_sub(left_padding);
+            Line::from(vec![
+                " ".repeat(left_padding).into(),
+                help_text.into(),
+                " ".repeat(right_padding).into(),
+                version_text.dim().into(),
+            ])
+        } else {
+            // not enough space or version is hidden, just show help text centered
+            Line::from(help_text).centered()
+        };
+
         let paragraph = if let Some(style) = custom_style {
             // use custom style for display events
-            Paragraph::new(help_text).centered().style(style)
+            Paragraph::new(line).style(style)
         } else if self.filter_focused {
             // slightly lighter background when user can type
-            Paragraph::new(help_text)
-                .centered()
-                .bg(theme::select_color_with_default_palette(
-                    theme::PaletteIdx::C400,
-                ))
+            Paragraph::new(line).bg(theme::select_color_with_default_palette(
+                theme::PaletteIdx::C400,
+            ))
         } else {
-            Paragraph::new(help_text).centered()
+            Paragraph::new(line)
         };
 
         paragraph.render(area, buf);
