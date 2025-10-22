@@ -31,6 +31,13 @@ pub const DEBUG_STYLE: Style = Style::new().fg(select_color_from_palette(
     PaletteIdx::C400,
     palette::tailwind::GREEN,
 ));
+pub const DISPLAY_EVENT_STYLE: Style = Style::new()
+    .fg(select_color_with_default_palette(PaletteIdx::C50))
+    .bg(select_color_from_palette(
+        PaletteIdx::C600,
+        palette::tailwind::BLUE,
+    ))
+    .add_modifier(Modifier::BOLD);
 
 pub enum PaletteIdx {
     #[allow(dead_code)]

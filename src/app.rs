@@ -52,14 +52,16 @@ struct DisplayEvent {
     text: String,
     duration: Duration,
     start_time: Instant,
+    style: Style,
 }
 
 impl DisplayEvent {
-    fn new(text: String, duration: Duration) -> Self {
+    fn new(text: String, duration: Duration, style: Style) -> Self {
         Self {
             text,
             duration,
             start_time: Instant::now(),
+            style,
         }
     }
 
@@ -402,16 +404,19 @@ impl App {
     }
 
     fn render_footer(&self, area: Rect, buf: &mut Buffer) -> Result<()> {
-        // if there's an active display event, show it instead of the normal text
-        let help_text = if let Some(event) = &self.display_event {
-            event.text.clone()
+        // if there's an active display event, show it with its custom style
+        let (help_text, custom_style) = if let Some(event) = &self.display_event {
+            (event.text.clone(), Some(event.style))
         } else if !self.filter_input.is_empty() {
-            self.filter_input.clone()
+            (self.filter_input.clone(), None)
         } else {
-            "?: help | q: quit".to_string()
+            ("?: help | q: quit".to_string(), None)
         };
 
-        let paragraph = if self.filter_focused {
+        let paragraph = if let Some(style) = custom_style {
+            // use custom style for display events
+            Paragraph::new(help_text).centered().style(style)
+        } else if self.filter_focused {
             // slightly lighter background when user can type
             Paragraph::new(help_text)
                 .centered()
@@ -1279,8 +1284,9 @@ impl App {
         log::debug!("Copied {} chars to clipboard", yank_content.len());
 
         self.set_display_event(
-            "Log yanked to clipboard".to_string(),
+            "Selected log copied to clipboard".to_string(),
             Duration::from_millis(800),
+            None, // use default style
         );
 
         Ok(())
@@ -1559,8 +1565,9 @@ impl App {
     }
 
     /// Set a display event to show in the footer for a given duration
-    pub fn set_display_event(&mut self, text: String, duration: Duration) {
-        self.display_event = Some(DisplayEvent::new(text, duration));
+    pub fn set_display_event(&mut self, text: String, duration: Duration, style: Option<Style>) {
+        let event_style = style.unwrap_or(theme::DISPLAY_EVENT_STYLE);
+        self.display_event = Some(DisplayEvent::new(text, duration, event_style));
     }
 
     /// Check if the current display event has expired and clear it if so
