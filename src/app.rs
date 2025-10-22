@@ -404,7 +404,7 @@ impl App {
         // center the popup
         let popup_area = Layout::vertical([
             Constraint::Fill(1),
-            Constraint::Length(22),
+            Constraint::Length(20),
             Constraint::Fill(1),
         ])
         .split(area)[1];
@@ -432,15 +432,12 @@ impl App {
             Line::from("  w        - Toggle text wrapping"),
             Line::from("  [        - Decrease detail level"),
             Line::from("  ]        - Increase detail level"),
-            Line::from(""),
-            Line::from("Focus:".bold()),
-            Line::from("  1/2/3    - Focus on Logs/Details/Debug panel"),
-            Line::from("  Shift+scroll - Horizontal scroll with mouse"),
-            Line::from(""),
-            Line::from("Exit:".bold()),
-            Line::from("  Esc      - Go back/close popup/clear filter"),
+            Line::from("  Esc      - Go back / clear filter"),
             Line::from("  q        - Quit program"),
             Line::from(""),
+            Line::from("Focus:".bold()),
+            Line::from("  <num_key>    - Toggle focus on panel"),
+            Line::from("  Shift+scroll - Horizontal scroll with mouse"),
         ];
 
         let block = Block::default()
