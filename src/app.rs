@@ -395,8 +395,7 @@ impl App {
             Line::from(""),
             Line::from("Navigation:".bold()),
             Line::from("  j/k/↑/↓  - Move to prev/next log"),
-            Line::from("  g/G      - Jump to top/bottom"),
-            Line::from("  h/l/←/→  - Horizontal scroll"),
+            Line::from("  space    - Jump to top"),
             Line::from(""),
             Line::from("Actions:".bold()),
             Line::from("  /        - Enter filter mode"),
@@ -1308,15 +1307,8 @@ impl App {
                 self.handle_log_item_scrolling(false, true)?;
                 Ok(())
             }
-            KeyCode::Char('g') => {
+            KeyCode::Char(' ') => {
                 self.displaying_logs.select_first();
-                self.update_selected_uuid();
-                self.ensure_selection_visible()?;
-                self.update_logs_scrollbar_state();
-                Ok(())
-            }
-            KeyCode::Char('G') => {
-                self.displaying_logs.select_last();
                 self.update_selected_uuid();
                 self.ensure_selection_visible()?;
                 self.update_logs_scrollbar_state();
