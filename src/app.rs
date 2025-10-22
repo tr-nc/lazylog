@@ -1,27 +1,33 @@
 use crate::{
     app_block::AppBlock,
     content_line_maker::{WrappingMode, calculate_content_width, content_into_lines},
-    file_finder,
     log_list::LogList,
-    log_parser::{LogItem, process_delta},
-    metadata, theme,
+    log_parser::LogItem,
+    log_provider::{DyehLogProvider, spawn_provider_thread},
+    theme,
     ui_logger::UiLogger,
 };
 use anyhow::{Result, anyhow};
 use arboard::Clipboard;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, MouseEvent, MouseEventKind};
-use memmap2::MmapOptions;
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
     prelude::*,
     widgets::{Padding, Paragraph, StatefulWidget, Widget},
 };
+use ringbuf::{
+    HeapRb,
+    traits::{Consumer, Split},
+};
 use std::{
-    fs::File,
     io,
-    path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    path::PathBuf,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
     time::Duration,
 };
 
@@ -29,6 +35,7 @@ use std::{
 pub struct AppDesc {
     pub poll_interval: Duration,
     pub show_debug_logs: bool,
+    pub ring_buffer_size: usize,
 }
 
 impl Default for AppDesc {
@@ -36,6 +43,7 @@ impl Default for AppDesc {
         Self {
             poll_interval: Duration::from_millis(100),
             show_debug_logs: false,
+            ring_buffer_size: 16384, // 16K capacity for good buffering
         }
     }
 }
@@ -65,10 +73,9 @@ struct App {
     is_exiting: bool,
     raw_logs: Vec<LogItem>,
     displaying_logs: LogList,
-    log_dir_path: PathBuf,
-    log_file_path: PathBuf,
-    last_len: u64,
-    prev_meta: Option<metadata::MetaSnap>,
+    log_consumer: ringbuf::HeapCons<LogItem>, // receives logs from provider thread
+    provider_thread: Option<thread::JoinHandle<()>>,
+    provider_stop_signal: Arc<AtomicBool>,
     autoscroll: bool,
     filter_input: String, // Current filter input text (includes leading '/')
     filter_focused: bool, // Whether the filter input is focused
@@ -106,29 +113,23 @@ impl App {
     fn new(log_dir_path: PathBuf, desc: AppDesc) -> Self {
         let debug_logs = Self::setup_logger();
 
-        let preview_log_dirs = file_finder::find_preview_log_dirs(&log_dir_path);
-        let log_file_path = match file_finder::find_latest_live_log(preview_log_dirs) {
-            Ok(path) => {
-                log::debug!(
-                    "Found initial log file: {}",
-                    Self::file_path_to_clickable_string(&path)
-                );
-                path
-            }
-            Err(e) => {
-                log::debug!("No log files found initially: {}", e);
-                log_dir_path.join("__no_log_file_yet__.log")
-            }
-        };
+        // create ring buffer
+        let ring_buffer = HeapRb::<LogItem>::new(desc.ring_buffer_size);
+        let (producer, consumer) = ring_buffer.split();
+
+        // create and spawn provider
+        let provider = DyehLogProvider::new(log_dir_path);
+        let poll_interval = desc.poll_interval;
+        let (provider_thread, provider_stop_signal) =
+            spawn_provider_thread(provider, producer, poll_interval);
 
         Self {
             is_exiting: false,
             raw_logs: Vec::new(),
             displaying_logs: LogList::new(Vec::new()),
-            log_dir_path,
-            log_file_path,
-            last_len: 0,
-            prev_meta: None,
+            log_consumer: consumer,
+            provider_thread: Some(provider_thread),
+            provider_stop_signal,
             autoscroll: true,
             filter_input: String::new(),
             filter_focused: false,
@@ -173,6 +174,10 @@ impl App {
             }
             Ok(())
         }));
+
+        // cleanup provider thread before returning
+        self.cleanup();
+
         match result {
             Ok(r) => r,
             Err(_) => {
@@ -182,11 +187,20 @@ impl App {
         }
     }
 
-    fn poll_event(&mut self, poll_interval: Duration) -> Result<()> {
-        if let Ok(Some(newer_file)) = self.check_for_newer_log_file() {
-            self.switch_to_log_file(newer_file)?;
-        }
+    fn cleanup(&mut self) {
+        // signal provider thread to stop
+        self.provider_stop_signal.store(true, Ordering::Relaxed);
 
+        // join the provider thread
+        if let Some(handle) = self.provider_thread.take() {
+            log::debug!("Waiting for provider thread to finish...");
+            if let Err(e) = handle.join() {
+                log::error!("Provider thread panicked: {:?}", e);
+            }
+        }
+    }
+
+    fn poll_event(&mut self, poll_interval: Duration) -> Result<()> {
         if event::poll(poll_interval)? {
             let event = event::read()?;
             match event {
@@ -213,164 +227,61 @@ impl App {
         total.saturating_sub(1).saturating_sub(underlying_index)
     }
 
-    fn check_for_newer_log_file(&self) -> Result<Option<PathBuf>> {
-        let preview_log_dirs = file_finder::find_preview_log_dirs(&self.log_dir_path);
-        match file_finder::find_latest_live_log(preview_log_dirs) {
-            Ok(latest_file_path) => {
-                if !self.log_file_path.exists() {
-                    log::debug!("Found first log file: {}", latest_file_path.display());
-                    Ok(Some(latest_file_path))
-                } else if latest_file_path != self.log_file_path {
-                    log::debug!(
-                        "Found newer log file: {} (current: {})",
-                        latest_file_path.display(),
-                        self.log_file_path.display()
-                    );
-                    Ok(Some(latest_file_path))
-                } else {
-                    Ok(None)
-                }
-            }
-            Err(e) => {
-                log::debug!("No log files found yet: {}", e);
-                Ok(None)
-            }
-        }
-    }
-
-    fn switch_to_log_file(&mut self, new_file_path: PathBuf) -> Result<()> {
-        log::debug!(
-            "Switching from {} to {}",
-            self.log_file_path.display(),
-            new_file_path.display()
-        );
-
-        let current_filter = self.filter_input.clone();
-        let current_autoscroll = self.autoscroll;
-        let current_detail_level = self.detail_level;
-
-        self.log_file_path = new_file_path;
-        self.last_len = 0;
-        self.prev_meta = None;
-
-        self.raw_logs.clear();
-        self.displaying_logs = LogList::new(Vec::new());
-
-        self.filter_input = current_filter;
-        self.autoscroll = current_autoscroll;
-        self.detail_level = current_detail_level;
-
-        self.logs_block.set_scroll_position(0);
-        self.logs_block.set_lines_count(0);
-        self.details_block.set_scroll_position(0);
-
-        self.selected_log_uuid = None;
-        self.prev_selected_log_id = None;
-
-        Ok(())
-    }
-
-    fn file_path_to_clickable_string(file_path: &Path) -> String {
-        let clickable_string = file_path.display().to_string().replace(" ", "%20");
-        format!("file://{}", clickable_string)
-    }
-
     fn update_logs(&mut self) -> Result<()> {
-        if !self.log_file_path.exists() {
+        // consume all available logs from ring buffer
+        let mut new_logs = Vec::new();
+        while let Some(log) = self.log_consumer.try_pop() {
+            new_logs.push(log);
+        }
+
+        if new_logs.is_empty() {
             return Ok(());
         }
 
-        let current_meta = match metadata::stat_path(&self.log_file_path) {
-            Ok(m) => m,
-            Err(_) => {
-                return Ok(());
-            }
-        };
+        let old_items_count = self.displaying_logs.items.len();
+        let previous_uuid = self.selected_log_uuid;
+        let previous_scroll_pos = Some(self.logs_block.get_scroll_position());
 
-        if metadata::has_changed(&self.prev_meta, &current_meta) {
-            if current_meta.len < self.last_len {
-                self.last_len = 0;
-            }
+        log::debug!("Received {} new log items from provider", new_logs.len());
+        self.raw_logs.extend(new_logs);
 
-            if current_meta.len > self.last_len {
-                if let Ok(new_items) =
-                    map_and_process_delta(&self.log_file_path, self.last_len, current_meta.len)
-                {
-                    let old_items_count = self.displaying_logs.items.len();
-                    let previous_uuid = self.selected_log_uuid;
-                    let previous_scroll_pos = Some(self.logs_block.get_scroll_position());
-
-                    log::debug!(
-                        "Found {} new log items in {}",
-                        new_items.len(),
-                        Self::file_path_to_clickable_string(&self.log_file_path)
-                    );
-                    self.raw_logs.extend(new_items);
-
-                    let filter_query = self.get_filter_query();
-                    if filter_query.is_empty() {
-                        self.displaying_logs = LogList::new(self.raw_logs.clone());
-                    } else {
-                        self.rebuild_filtered_list();
-                    }
-
-                    if previous_uuid.is_some() {
-                        self.update_selection_by_uuid();
-                    } else if self.autoscroll {
-                        self.displaying_logs.select_first();
-                        self.update_selected_uuid();
-                    }
-
-                    {
-                        let new_items_count = self.displaying_logs.items.len();
-                        let items_added = new_items_count.saturating_sub(old_items_count);
-
-                        if self.autoscroll {
-                            self.logs_block.set_scroll_position(0);
-                        } else if let Some(prev) = previous_scroll_pos {
-                            // newest is at visual index 0, adding items pushes existing content down;
-                            // keep the same lines visible by shifting the top by items_added
-                            let new_scroll_pos = prev.saturating_add(items_added);
-                            let max_top = new_items_count.saturating_sub(1);
-                            self.logs_block
-                                .set_scroll_position(new_scroll_pos.min(max_top));
-                        }
-
-                        self.logs_block.set_lines_count(new_items_count);
-                        self.logs_block.update_scrollbar_state(
-                            new_items_count,
-                            Some(self.logs_block.get_scroll_position()),
-                        );
-                    }
-                }
-                self.last_len = current_meta.len;
-            }
-
-            self.prev_meta = Some(current_meta);
+        let filter_query = self.get_filter_query();
+        if filter_query.is_empty() {
+            self.displaying_logs = LogList::new(self.raw_logs.clone());
+        } else {
+            self.rebuild_filtered_list();
         }
-        return Ok(());
 
-        fn map_and_process_delta(
-            file_path: &Path,
-            prev_len: u64,
-            cur_len: u64,
-        ) -> Result<Vec<LogItem>> {
-            let file = File::open(file_path)?;
-            let mmap = unsafe { MmapOptions::new().len(cur_len as usize).map(&file)? };
+        if previous_uuid.is_some() {
+            self.update_selection_by_uuid();
+        } else if self.autoscroll {
+            self.displaying_logs.select_first();
+            self.update_selected_uuid();
+        }
 
-            let start = (prev_len as usize).min(mmap.len());
-            let end = (cur_len as usize).min(mmap.len());
-            let delta_bytes = &mmap[start..end];
+        {
+            let new_items_count = self.displaying_logs.items.len();
+            let items_added = new_items_count.saturating_sub(old_items_count);
 
-            if delta_bytes.is_empty() {
-                return Ok(Vec::new());
+            if self.autoscroll {
+                self.logs_block.set_scroll_position(0);
+            } else if let Some(prev) = previous_scroll_pos {
+                // newest is at visual index 0, adding items pushes existing content down;
+                // keep the same lines visible by shifting the top by items_added
+                let new_scroll_pos = prev.saturating_add(items_added);
+                let max_top = new_items_count.saturating_sub(1);
+                self.logs_block
+                    .set_scroll_position(new_scroll_pos.min(max_top));
             }
 
-            let delta_str = String::from_utf8_lossy(delta_bytes);
-            let log_items = process_delta(&delta_str);
-
-            Ok(log_items)
+            self.logs_block.set_lines_count(new_items_count);
+            self.logs_block.update_scrollbar_state(
+                new_items_count,
+                Some(self.logs_block.get_scroll_position()),
+            );
         }
+
+        Ok(())
     }
 
     fn get_filter_query(&self) -> &str {
@@ -526,24 +437,19 @@ impl App {
 
         let is_log_focused = self.is_log_block_focused().unwrap_or(false);
 
-        let title = if self.log_file_path.exists() {
-            let filter_query = self.get_filter_query();
-            let mut display_content = if filter_query.is_empty() {
-                format!("[1]─Logs | {}", self.raw_logs.len())
-            } else {
-                format!(
-                    "[1]─Logs | {} / {}",
-                    self.displaying_logs.items.len(),
-                    self.raw_logs.len()
-                )
-            };
-            if self.autoscroll {
-                display_content += " | Autoscrolling";
-            }
-            display_content
+        let filter_query = self.get_filter_query();
+        let mut title = if filter_query.is_empty() {
+            format!("[1]─Logs | {}", self.raw_logs.len())
         } else {
-            "[1]─Logs | Waiting for log files...".to_string()
+            format!(
+                "[1]─Logs | {} / {}",
+                self.displaying_logs.items.len(),
+                self.raw_logs.len()
+            )
         };
+        if self.autoscroll {
+            title += " | Autoscrolling";
+        }
         self.logs_block.update_title(title);
         let logs_block_id = self.logs_block.id();
 
