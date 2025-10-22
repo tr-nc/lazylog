@@ -487,6 +487,7 @@ impl App {
             Line::from("Navigation:".bold()),
             Line::from("  j/k/↑/↓  - Move to prev/next log"),
             Line::from("  space    - Jump to top"),
+            Line::from("  g        - Center selected log in view"),
             Line::from(""),
             Line::from("Actions:".bold()),
             Line::from("  /        - Enter filter mode"),
@@ -1503,6 +1504,12 @@ impl App {
             }
             KeyCode::Char('?') => {
                 self.show_help_popup = !self.show_help_popup;
+                Ok(())
+            }
+            KeyCode::Char('g') => {
+                // force the selected log to be visible in block 1
+                self.ensure_selection_visible()?;
+                self.update_logs_scrollbar_state();
                 Ok(())
             }
             _ => Ok(()),
