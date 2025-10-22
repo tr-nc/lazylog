@@ -465,24 +465,6 @@ impl App {
     fn render_help_popup(&self, area: Rect, buf: &mut Buffer) -> Result<()> {
         use ratatui::widgets::{Block, Borders, Clear};
 
-        // center the popup
-        let popup_area = Layout::vertical([
-            Constraint::Fill(1),
-            Constraint::Length(20),
-            Constraint::Fill(1),
-        ])
-        .split(area)[1];
-
-        let popup_area = Layout::horizontal([
-            Constraint::Fill(1),
-            Constraint::Length(60),
-            Constraint::Fill(1),
-        ])
-        .split(popup_area)[1];
-
-        // clear the area first
-        Clear.render(popup_area, buf);
-
         let help_text = vec![
             Line::from("Navigation:".bold()),
             Line::from("  j/k/↑/↓  - Move to prev/next log"),
@@ -504,6 +486,27 @@ impl App {
             Line::from("  <num_key>    - Toggle focus on panel"),
             Line::from("  Shift+scroll - Horizontal scroll with mouse"),
         ];
+
+        // calculate popup height: content lines + 2 for borders
+        let popup_height = help_text.len() as u16 + 2;
+
+        // center the popup
+        let popup_area = Layout::vertical([
+            Constraint::Fill(1),
+            Constraint::Length(popup_height),
+            Constraint::Fill(1),
+        ])
+        .split(area)[1];
+
+        let popup_area = Layout::horizontal([
+            Constraint::Fill(1),
+            Constraint::Length(60),
+            Constraint::Fill(1),
+        ])
+        .split(popup_area)[1];
+
+        // clear the area first
+        Clear.render(popup_area, buf);
 
         let block = Block::default()
             .title("Help")
