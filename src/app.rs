@@ -116,7 +116,7 @@ struct App {
     show_debug_logs: bool,        // Whether to show the debug logs block
     show_help_popup: bool,        // Whether to show the help popup
     display_event: Option<DisplayEvent>, // Temporary event to display in footer
-    need_viewport_adjustment: bool, // Flag to trigger viewport adjustment after focus change
+    viewport_adjustment_delay: u8, // Countdown to trigger viewport adjustment (2 = just changed, 1 = adjust, 0 = idle)
 
     mouse_event: Option<MouseEvent>,
 }
@@ -176,7 +176,7 @@ impl App {
             show_debug_logs: desc.show_debug_logs,
             show_help_popup: false,
             display_event: None,
-            need_viewport_adjustment: false,
+            viewport_adjustment_delay: 0,
 
             mouse_event: None,
         }
@@ -1462,8 +1462,9 @@ impl App {
 
     fn set_hard_focused_block(&mut self, block_id: uuid::Uuid) {
         self.hard_focused_block_id = Some(block_id);
-        // flag that we need to adjust viewport after the next render with new sizes
-        self.need_viewport_adjustment = true;
+        // set delay to 2: next render decrements to 1, then adjust viewport
+        // this ensures viewport adjustment happens AFTER new layout is applied
+        self.viewport_adjustment_delay = 2;
     }
 
     fn set_soft_focused_block(&mut self, block_id: uuid::Uuid) {
@@ -1622,12 +1623,14 @@ impl Widget for &mut App {
             self.render_help_popup(area, buf).unwrap();
         }
 
-        // ensure selected item in logs block stays visible after viewport size changes
-        // (only when hard focus changes and panels resize, not on every render)
-        if self.need_viewport_adjustment {
-            log::debug!("Need viewport adj");
-            let _ = self.ensure_selection_visible();
-            self.need_viewport_adjustment = false;
+        // handle viewport adjustment countdown for focus changes
+        // delay ensures adjustment happens after new layout is applied
+        if self.viewport_adjustment_delay > 0 {
+            self.viewport_adjustment_delay -= 1;
+            if self.viewport_adjustment_delay == 0 {
+                log::debug!("Adjusting viewport after focus change");
+                let _ = self.ensure_selection_visible();
+            }
         }
 
         self.clear_event();
