@@ -376,7 +376,7 @@ impl App {
         // center the popup
         let popup_area = Layout::vertical([
             Constraint::Fill(1),
-            Constraint::Length(20),
+            Constraint::Length(22),
             Constraint::Fill(1),
         ])
         .split(area)[1];
@@ -409,10 +409,14 @@ impl App {
             Line::from("  1/2/3    - Focus on Logs/Details/Debug panel"),
             Line::from("  Shift+scroll - Horizontal scroll with mouse"),
             Line::from(""),
+            Line::from("Exit:".bold()),
+            Line::from("  Esc      - Go back/close popup/clear filter"),
+            Line::from("  q        - Quit program"),
+            Line::from(""),
         ];
 
         let block = Block::default()
-            .title("Help - Press ? / q / Esc to close")
+            .title("Help-esc to close")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(theme::TEXT_FG_COLOR));
 
@@ -1238,17 +1242,27 @@ impl App {
         // help popup mode has higher priority
         if self.show_help_popup {
             match key.code {
-                KeyCode::Char('?') | KeyCode::Char('q') | KeyCode::Esc => {
+                KeyCode::Char('?') | KeyCode::Esc => {
                     self.show_help_popup = false;
                     return Ok(());
                 }
-                _ => return Ok(()),
+                KeyCode::Char('q') => {
+                    // let 'q' fall through to quit the program
+                }
+                _ => return Ok(()), // ignore other keys when help popup is open
             }
         }
 
         // handle filter input mode when focused
         if !self.filter_input.is_empty() && self.filter_focused {
             match key.code {
+                KeyCode::Esc => {
+                    // unfocus and clear filter
+                    self.filter_focused = false;
+                    self.filter_input.clear();
+                    self.apply_filter();
+                    return Ok(());
+                }
                 KeyCode::Char(c) => {
                     self.filter_input.push(c);
                     self.apply_filter();
@@ -1280,15 +1294,20 @@ impl App {
         }
 
         match key.code {
-            KeyCode::Char('q') | KeyCode::Esc => {
+            KeyCode::Char('q') => {
+                // always quit, regardless of filter state or other modes
+                log::debug!("Quit key pressed");
+                self.is_exiting = true;
+                Ok(())
+            }
+            KeyCode::Esc => {
+                // Esc only goes back (never quits)
                 // if filter is active but not focused, clear it
                 if !self.filter_input.is_empty() && !self.filter_focused {
                     self.filter_input.clear();
                     self.apply_filter();
-                } else {
-                    log::debug!("Exit key pressed");
-                    self.is_exiting = true;
                 }
+                // Esc never quits the program
                 Ok(())
             }
             KeyCode::Char('c') => {
