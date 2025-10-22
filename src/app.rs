@@ -28,7 +28,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 #[derive(Clone)]
@@ -45,6 +45,26 @@ impl Default for AppDesc {
             show_debug_logs: false,
             ring_buffer_size: 16384, // 16K capacity for good buffering
         }
+    }
+}
+
+struct DisplayEvent {
+    text: String,
+    duration: Duration,
+    start_time: Instant,
+}
+
+impl DisplayEvent {
+    fn new(text: String, duration: Duration) -> Self {
+        Self {
+            text,
+            duration,
+            start_time: Instant::now(),
+        }
+    }
+
+    fn is_expired(&self) -> bool {
+        self.start_time.elapsed() >= self.duration
     }
 }
 
@@ -95,6 +115,7 @@ struct App {
     text_wrapping_enabled: bool,  // Whether text wrapping is enabled (default false)
     show_debug_logs: bool,        // Whether to show the debug logs block
     show_help_popup: bool,        // Whether to show the help popup
+    display_event: Option<DisplayEvent>, // Temporary event to display in footer
 
     mouse_event: Option<MouseEvent>,
 }
@@ -153,6 +174,7 @@ impl App {
             text_wrapping_enabled: true,
             show_debug_logs: desc.show_debug_logs,
             show_help_popup: false,
+            display_event: None,
 
             mouse_event: None,
         }
@@ -171,6 +193,7 @@ impl App {
             while !self.is_exiting {
                 self.poll_event(poll_interval)?;
                 self.update_logs()?;
+                self.check_and_clear_expired_event();
                 terminal.draw(|frame| frame.render_widget(&mut self, frame.area()))?;
             }
             Ok(())
@@ -377,7 +400,10 @@ impl App {
     }
 
     fn render_footer(&self, area: Rect, buf: &mut Buffer) -> Result<()> {
-        let help_text = if !self.filter_input.is_empty() {
+        // if there's an active display event, show it instead of the normal text
+        let help_text = if let Some(event) = &self.display_event {
+            event.text.clone()
+        } else if !self.filter_input.is_empty() {
             self.filter_input.clone()
         } else {
             "?: help | q: quit".to_string()
@@ -1232,7 +1258,7 @@ impl App {
         )
     }
 
-    fn yank_current_log(&self) -> Result<()> {
+    fn yank_current_log(&mut self) -> Result<()> {
         let (items, state) = (&self.displaying_logs.items, &self.displaying_logs.state);
 
         let Some(i) = state.selected() else {
@@ -1249,6 +1275,11 @@ impl App {
         clipboard.set_text(&yank_content)?;
 
         log::debug!("Copied {} chars to clipboard", yank_content.len());
+
+        self.set_display_event(
+            "Log yanked to clipboard".to_string(),
+            Duration::from_millis(800),
+        );
 
         Ok(())
     }
@@ -1523,6 +1554,20 @@ impl App {
         };
 
         self.selected_log_uuid = Some(item.id);
+    }
+
+    /// Set a display event to show in the footer for a given duration
+    pub fn set_display_event(&mut self, text: String, duration: Duration) {
+        self.display_event = Some(DisplayEvent::new(text, duration));
+    }
+
+    /// Check if the current display event has expired and clear it if so
+    fn check_and_clear_expired_event(&mut self) {
+        if let Some(event) = &self.display_event {
+            if event.is_expired() {
+                self.display_event = None;
+            }
+        }
     }
 }
 
