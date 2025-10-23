@@ -469,7 +469,7 @@ impl App {
             Line::from("Navigation:".bold()),
             Line::from("  j/k/↑/↓  - Move to prev/next log"),
             Line::from("  space    - Jump to top"),
-            Line::from("  g        - Center selected log in view"),
+            Line::from("  g        - Make selected log visible in view"),
             Line::from(""),
             Line::from("Actions:".bold()),
             Line::from("  /        - Enter filter mode"),
