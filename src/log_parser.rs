@@ -42,8 +42,15 @@ pub struct LogItem {
 }
 
 impl LogItem {
-    pub fn contains(&self, pattern: &str) -> bool {
-        self.raw_content
+    pub fn make_yank_content(&self) -> String {
+        format!(
+            "# Formatted Log\n\n## Time:\n\n{}\n\n## Level:\n\n{}\n\n## Origin:\n\n{}\n\n## Tag:\n\n{}\n\n## Content:\n\n{}\n\n# Raw Log\n\n{}",
+            self.time, self.level, self.origin, self.tag, self.content, self.raw_content
+        )
+    }
+
+    pub fn contains(&self, pattern: &str, detail_level: u8) -> bool {
+        self.get_preview_text(detail_level)
             .to_lowercase()
             .contains(&pattern.to_lowercase())
     }

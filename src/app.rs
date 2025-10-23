@@ -367,7 +367,7 @@ impl App {
             let filtered_items: Vec<LogItem> = self
                 .raw_logs
                 .iter()
-                .filter(|item| item.contains(filter_query))
+                .filter(|item| item.contains(filter_query, self.detail_level))
                 .cloned()
                 .collect();
             self.displaying_logs = LogList::new(filtered_items);
@@ -1264,13 +1264,6 @@ impl App {
         Ok(())
     }
 
-    fn make_yank_content(&self, item: &LogItem) -> String {
-        format!(
-            "# Formatted Log\n\n## Time:\n\n{}\n\n## Level:\n\n{}\n\n## Origin:\n\n{}\n\n## Tag:\n\n{}\n\n## Content:\n\n{}\n\n# Raw Log\n\n{}",
-            item.time, item.level, item.origin, item.tag, item.content, item.raw_content
-        )
-    }
-
     fn yank_current_log(&mut self) -> Result<()> {
         let (items, state) = (&self.displaying_logs.items, &self.displaying_logs.state);
 
@@ -1284,7 +1277,7 @@ impl App {
         let item = &items[reversed_index];
 
         let mut clipboard = Clipboard::new()?;
-        let yank_content = self.make_yank_content(item);
+        let yank_content = item.make_yank_content();
         clipboard.set_text(&yank_content)?;
 
         log::debug!("Copied {} chars to clipboard", yank_content.len());
