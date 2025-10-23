@@ -24,6 +24,25 @@ impl DisplayEvent {
     pub fn is_expired(&self) -> bool {
         self.start_time.elapsed() >= self.duration
     }
+
+    /// Create a display event with the given text, duration, and optional style
+    pub fn create(
+        text: String,
+        duration: Duration,
+        style: Option<Style>,
+        default_style: Style,
+    ) -> Self {
+        let event_style = style.unwrap_or(default_style);
+        Self::new(text, duration, event_style)
+    }
+
+    /// Check if a display event has expired and return None if so
+    pub fn check_and_clear(event: Option<Self>) -> Option<Self> {
+        match event {
+            Some(e) if e.is_expired() => None,
+            other => other,
+        }
+    }
 }
 
 pub struct StatusBar {

@@ -1590,17 +1590,17 @@ impl App {
 
     /// Set a display event to show in the footer for a given duration
     pub fn set_display_event(&mut self, text: String, duration: Duration, style: Option<Style>) {
-        let event_style = style.unwrap_or(theme::DISPLAY_EVENT_STYLE);
-        self.display_event = Some(DisplayEvent::new(text, duration, event_style));
+        self.display_event = Some(DisplayEvent::create(
+            text,
+            duration,
+            style,
+            theme::DISPLAY_EVENT_STYLE,
+        ));
     }
 
     /// Check if the current display event has expired and clear it if so
     fn check_and_clear_expired_event(&mut self) {
-        if let Some(event) = &self.display_event {
-            if event.is_expired() {
-                self.display_event = None;
-            }
-        }
+        self.display_event = DisplayEvent::check_and_clear(self.display_event.take());
     }
 }
 
