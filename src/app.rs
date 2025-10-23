@@ -419,7 +419,13 @@ impl App {
         let mut status_bar = StatusBar::new()
             .set_left(left_text)
             .set_mid(mid_text)
-            .set_right(right_text);
+            .set_right(right_text)
+            .set_left_fg(theme::select_color_with_default_palette(
+                theme::PaletteIdx::C600,
+            ))
+            .set_right_fg(theme::select_color_with_default_palette(
+                theme::PaletteIdx::C600,
+            ));
 
         if let Some(style) = custom_style {
             status_bar = status_bar.set_style(style);
@@ -1448,6 +1454,14 @@ impl App {
             KeyCode::Char('w') => {
                 self.text_wrapping_enabled = !self.text_wrapping_enabled;
                 log::debug!("Text wrapping toggled: {}", self.text_wrapping_enabled);
+
+                let message = if self.text_wrapping_enabled {
+                    "Text wrapping enabled"
+                } else {
+                    "Text wrapping disabled"
+                };
+                self.set_display_event(message.to_string(), Duration::from_millis(800), None);
+
                 Ok(())
             }
             KeyCode::Char('d') => {

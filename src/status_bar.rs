@@ -156,7 +156,7 @@ impl StatusBar {
         let right_span = if let Some(fg) = self.right_fg {
             Span::styled(self.right, Style::default().fg(fg))
         } else {
-            Span::styled(self.right, Style::default().dim())
+            Span::raw(self.right)
         };
         spans.push(right_span);
 
