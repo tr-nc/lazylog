@@ -2,7 +2,7 @@ use crate::{
     app_block::AppBlock,
     content_line_maker::{WrappingMode, calculate_content_width, content_into_lines},
     log_list::LogList,
-    log_parser::LogItem,
+    log_parser::{LogDetailLevel, LogItem},
     log_provider::{DyehLogProvider, spawn_provider_thread},
     status_bar::{DisplayEvent, StatusBar},
     theme,
@@ -81,7 +81,7 @@ struct App {
     autoscroll: bool,
     filter_input: String, // Current filter input text (includes leading '/')
     filter_focused: bool, // Whether the filter input is focused
-    detail_level: u8,     // Detail level for log display (0-4, default 1)
+    detail_level: LogDetailLevel, // Detail level for log display
     debug_logs: Arc<Mutex<Vec<String>>>, // Debug log messages for UI display
     hard_focused_block_id: uuid::Uuid, // Hard focus: set by clicking, persists until another click (defaults to logs_block)
     soft_focused_block_id: Option<uuid::Uuid>, // Soft focus: set by hovering, changes with mouse movement
@@ -148,7 +148,7 @@ impl App {
             autoscroll: true,
             filter_input: String::new(),
             filter_focused: false,
-            detail_level: 1,
+            detail_level: LogDetailLevel::default(),
             debug_logs,
             hard_focused_block_id: logs_block_id,
             soft_focused_block_id: None,
@@ -1417,16 +1417,12 @@ impl App {
             }
             KeyCode::Char('[') => {
                 // decrease detail level (show less info) - non-circular
-                if self.detail_level > 0 {
-                    self.detail_level -= 1;
-                }
+                self.detail_level = self.detail_level.decrement();
                 Ok(())
             }
             KeyCode::Char(']') => {
                 // increase detail level (show more info) - non-circular
-                if self.detail_level < 4 {
-                    self.detail_level += 1;
-                }
+                self.detail_level = self.detail_level.increment();
                 Ok(())
             }
             KeyCode::Char('y') => {

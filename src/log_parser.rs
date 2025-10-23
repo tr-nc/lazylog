@@ -41,6 +41,43 @@ pub struct LogItem {
     pub raw_content: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogDetailLevel {
+    ContentOnly, // 0: content only
+    Basic,       // 1: [time] content
+    Medium,      // 2: [time] [tag] content
+    Detailed,    // 3: [time] [tag] [origin] content
+    Full,        // 4: [time] [tag] [origin] [level] content
+}
+
+impl LogDetailLevel {
+    pub fn increment(&self) -> Self {
+        match self {
+            Self::ContentOnly => Self::Basic,
+            Self::Basic => Self::Medium,
+            Self::Medium => Self::Detailed,
+            Self::Detailed => Self::Full,
+            Self::Full => Self::Full, // cap at Full
+        }
+    }
+
+    pub fn decrement(&self) -> Self {
+        match self {
+            Self::ContentOnly => Self::ContentOnly, // cap at ContentOnly
+            Self::Basic => Self::ContentOnly,
+            Self::Medium => Self::Basic,
+            Self::Detailed => Self::Medium,
+            Self::Full => Self::Detailed,
+        }
+    }
+}
+
+impl Default for LogDetailLevel {
+    fn default() -> Self {
+        Self::Basic // default is level 1
+    }
+}
+
 impl LogItem {
     pub fn make_yank_content(&self) -> String {
         format!(
@@ -49,13 +86,13 @@ impl LogItem {
         )
     }
 
-    pub fn contains(&self, pattern: &str, detail_level: u8) -> bool {
+    pub fn contains(&self, pattern: &str, detail_level: LogDetailLevel) -> bool {
         self.get_preview_text(detail_level)
             .to_lowercase()
             .contains(&pattern.to_lowercase())
     }
 
-    pub fn get_preview_text(&self, detail_level: u8) -> String {
+    pub fn get_preview_text(&self, detail_level: LogDetailLevel) -> String {
         let content = shorten_content(&self.content);
 
         let base_format = self.format_with_fields(detail_level, &content);
@@ -77,7 +114,7 @@ impl LogItem {
         }
     }
 
-    fn format_with_fields(&self, detail_level: u8, content: &str) -> String {
+    fn format_with_fields(&self, detail_level: LogDetailLevel, content: &str) -> String {
         let field_order = [
             ("time", &self.time),
             ("tag", &self.tag),
@@ -86,8 +123,8 @@ impl LogItem {
         ];
 
         match detail_level {
-            0 => content.to_string(),
-            1 => {
+            LogDetailLevel::ContentOnly => content.to_string(),
+            LogDetailLevel::Basic => {
                 let mut parts = Vec::new();
                 if let Some((_, field_value)) = field_order.first()
                     && !field_value.is_empty()
@@ -97,7 +134,7 @@ impl LogItem {
                 parts.push(content.to_string());
                 parts.join(" ")
             }
-            2 => {
+            LogDetailLevel::Medium => {
                 let mut parts = Vec::new();
                 for (_, field_value) in field_order.iter().take(2) {
                     if !field_value.is_empty() {
@@ -107,7 +144,7 @@ impl LogItem {
                 parts.push(content.to_string());
                 parts.join(" ")
             }
-            3 => {
+            LogDetailLevel::Detailed => {
                 let mut parts = Vec::new();
                 for (_, field_value) in field_order.iter().take(3) {
                     if !field_value.is_empty() {
@@ -117,22 +154,12 @@ impl LogItem {
                 parts.push(content.to_string());
                 parts.join(" ")
             }
-            4 => {
+            LogDetailLevel::Full => {
                 let mut parts = Vec::new();
                 for (_, field_value) in field_order.iter() {
                     if !field_value.is_empty() {
                         parts.push(format!("[{}]", field_value));
                     }
-                }
-                parts.push(content.to_string());
-                parts.join(" ")
-            }
-            _ => {
-                let mut parts = Vec::new();
-                if let Some((_, field_value)) = field_order.first()
-                    && !field_value.is_empty()
-                {
-                    parts.push(format!("[{}]", field_value));
                 }
                 parts.push(content.to_string());
                 parts.join(" ")
