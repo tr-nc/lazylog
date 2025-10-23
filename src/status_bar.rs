@@ -112,20 +112,47 @@ impl StatusBar {
         // calculate padding from middle to right
         let mid_to_right_padding = right_start.saturating_sub(mid_end);
 
-        let line = Line::from(vec![
-            self.left.into(),
-            " ".repeat(left_to_mid_padding).into(),
-            self.mid.into(),
-            " ".repeat(mid_to_right_padding).into(),
-            self.right.dim().into(),
-        ]);
+        // build spans with individual foreground colors
+        let mut spans = vec![];
 
-        let paragraph = if let Some(style) = self.style {
-            Paragraph::new(line).style(style)
+        // left span
+        let left_span = if let Some(fg) = self.left_fg {
+            Span::styled(self.left, Style::default().fg(fg))
         } else {
-            Paragraph::new(line)
+            Span::raw(self.left)
         };
+        spans.push(left_span);
+        spans.push(Span::raw(" ".repeat(left_to_mid_padding)));
 
+        // mid span
+        let mid_span = if let Some(fg) = self.mid_fg {
+            Span::styled(self.mid, Style::default().fg(fg))
+        } else {
+            Span::raw(self.mid)
+        };
+        spans.push(mid_span);
+        spans.push(Span::raw(" ".repeat(mid_to_right_padding)));
+
+        // right span (dimmed by default if no color specified)
+        let right_span = if let Some(fg) = self.right_fg {
+            Span::styled(self.right, Style::default().fg(fg))
+        } else {
+            Span::styled(self.right, Style::default().dim())
+        };
+        spans.push(right_span);
+
+        let line = Line::from(spans);
+
+        // apply uniform background color and custom style
+        let mut base_style = Style::default();
+        if let Some(bg) = self.bg_color {
+            base_style = base_style.bg(bg);
+        }
+        if let Some(custom_style) = self.style {
+            base_style = base_style.patch(custom_style);
+        }
+
+        let paragraph = Paragraph::new(line).style(base_style);
         paragraph.render(area, buf);
     }
 }
