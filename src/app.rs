@@ -425,7 +425,7 @@ impl App {
             status_bar = status_bar.set_style(style);
         } else if self.filter_focused {
             status_bar = status_bar.set_style(Style::default().bg(
-                theme::select_color_with_default_palette(theme::PaletteIdx::C400),
+                theme::select_color_with_default_palette(theme::PaletteIdx::C500),
             ));
         }
 
