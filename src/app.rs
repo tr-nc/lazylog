@@ -4,6 +4,7 @@ use crate::{
     log_list::LogList,
     log_parser::LogItem,
     log_provider::{DyehLogProvider, spawn_provider_thread},
+    status_bar::{DisplayEvent, StatusBar},
     theme,
     ui_logger::UiLogger,
 };
@@ -28,7 +29,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 #[derive(Clone)]
@@ -45,28 +46,6 @@ impl Default for AppDesc {
             show_debug_logs: false,
             ring_buffer_size: 16384, // 16K capacity for good buffering
         }
-    }
-}
-
-struct DisplayEvent {
-    text: String,
-    duration: Duration,
-    start_time: Instant,
-    style: Style,
-}
-
-impl DisplayEvent {
-    fn new(text: String, duration: Duration, style: Style) -> Self {
-        Self {
-            text,
-            duration,
-            start_time: Instant::now(),
-            style,
-        }
-    }
-
-    fn is_expired(&self) -> bool {
-        self.start_time.elapsed() >= self.duration
     }
 }
 
@@ -409,8 +388,8 @@ impl App {
     }
 
     fn render_footer(&self, area: Rect, buf: &mut Buffer) -> Result<()> {
-        // if there's an active display event, show it with its custom style
-        let (help_text, custom_style) = if let Some(event) = &self.display_event {
+        // determine middle text (help, filter, or display event)
+        let (mid_text, custom_style) = if let Some(event) = &self.display_event {
             (event.text.clone(), Some(event.style))
         } else if !self.filter_input.is_empty() {
             (self.filter_input.clone(), None)
@@ -418,47 +397,39 @@ impl App {
             ("?: help | q: quit".to_string(), None)
         };
 
-        // hide version when display event is showing or during filtering
-        let show_version = self.display_event.is_none() && self.filter_input.is_empty();
-
-        let version = env!("CARGO_PKG_VERSION");
-        let version_text = format!("v{}", version);
-
-        // calculate spacing to position version on the right
-        let help_len = help_text.chars().count();
-        let version_len = version_text.chars().count();
-        let total_width = area.width as usize;
-
-        // create a line with help text on left/center and version on right
-        let line = if show_version && total_width > help_len + version_len + 2 {
-            // enough space to show both
-            let padding = total_width.saturating_sub(help_len + version_len);
-            let left_padding = padding / 2;
-            let right_padding = padding.saturating_sub(left_padding);
-            Line::from(vec![
-                " ".repeat(left_padding).into(),
-                help_text.into(),
-                " ".repeat(right_padding).into(),
-                version_text.dim().into(),
-            ])
+        // build left side status (wrap mode)
+        let left_text = if self.display_event.is_none() && self.filter_input.is_empty() {
+            if self.text_wrapping_enabled {
+                "wrap on".to_string()
+            } else {
+                "wrap off".to_string()
+            }
         } else {
-            // not enough space or version is hidden, just show help text centered
-            Line::from(help_text).centered()
+            String::new()
         };
 
-        let paragraph = if let Some(style) = custom_style {
-            // use custom style for display events
-            Paragraph::new(line).style(style)
+        // build right side status (version)
+        let right_text = if self.display_event.is_none() && self.filter_input.is_empty() {
+            format!("v{}", env!("CARGO_PKG_VERSION"))
+        } else {
+            String::new()
+        };
+
+        // create and render status bar
+        let mut status_bar = StatusBar::new()
+            .set_left(left_text)
+            .set_mid(mid_text)
+            .set_right(right_text);
+
+        if let Some(style) = custom_style {
+            status_bar = status_bar.set_style(style);
         } else if self.filter_focused {
-            // slightly lighter background when user can type
-            Paragraph::new(line).bg(theme::select_color_with_default_palette(
-                theme::PaletteIdx::C400,
-            ))
-        } else {
-            Paragraph::new(line)
-        };
+            status_bar = status_bar.set_style(Style::default().bg(
+                theme::select_color_with_default_palette(theme::PaletteIdx::C400),
+            ));
+        }
 
-        paragraph.render(area, buf);
+        status_bar.render(area, buf);
         Ok(())
     }
 

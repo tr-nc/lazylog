@@ -6,6 +6,7 @@ mod log_list;
 mod log_parser;
 mod log_provider;
 mod metadata;
+mod status_bar;
 mod theme;
 mod ui_logger;
 
