@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// Recursively find all 'previewLog' directories under the given path
+/// recursively find all 'previewLog' directories under the given path (DYEH-specific)
 pub fn find_preview_log_dirs(base_path: &Path) -> Vec<PathBuf> {
     let mut preview_log_dirs = Vec::new();
 
@@ -29,6 +29,7 @@ pub fn find_preview_log_dirs(base_path: &Path) -> Vec<PathBuf> {
     preview_log_dirs
 }
 
+/// find the latest live log file from DYEH previewLog directories
 pub fn find_latest_live_log(preview_log_dirs: Vec<PathBuf>) -> Result<PathBuf, String> {
     if preview_log_dirs.is_empty() {
         return Err("No previewLog directories found.".to_string());

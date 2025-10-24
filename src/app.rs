@@ -1,9 +1,10 @@
 use crate::{
     app_block::AppBlock,
     content_line_maker::{WrappingMode, calculate_content_width, content_into_lines},
+    dyeh::DyehLogProvider,
     log_list::LogList,
     log_parser::{LogDetailLevel, LogItem},
-    log_provider::{DyehLogProvider, spawn_provider_thread},
+    provider::spawn_provider_thread,
     status_bar::{DisplayEvent, StatusBar},
     theme,
     ui_logger::UiLogger,

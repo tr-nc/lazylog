@@ -1,11 +1,11 @@
 mod app;
 mod app_block;
 mod content_line_maker;
-mod file_finder;
+mod dyeh;
 mod log_list;
 mod log_parser;
-mod log_provider;
 mod metadata;
+mod provider;
 mod status_bar;
 mod theme;
 mod ui_logger;
