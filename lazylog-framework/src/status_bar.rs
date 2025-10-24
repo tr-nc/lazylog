@@ -85,21 +85,25 @@ impl StatusBar {
         self
     }
 
+    #[allow(dead_code)]
     pub fn set_bg(mut self, color: Color) -> Self {
         self.bg_color = Some(color);
         self
     }
 
+    #[allow(dead_code)]
     pub fn set_left_fg(mut self, color: Color) -> Self {
         self.left_fg = Some(color);
         self
     }
 
+    #[allow(dead_code)]
     pub fn set_mid_fg(mut self, color: Color) -> Self {
         self.mid_fg = Some(color);
         self
     }
 
+    #[allow(dead_code)]
     pub fn set_right_fg(mut self, color: Color) -> Self {
         self.right_fg = Some(color);
         self
