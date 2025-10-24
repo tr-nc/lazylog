@@ -17,7 +17,8 @@
       "Bash(./regex_test)",
       "Bash(chmod:*)",
       "WebFetch(domain:docs.rs)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(tree:*)"
     ],
     "deny": [],
     "ask": []
