@@ -1,16 +1,6 @@
-mod app;
-mod app_block;
-mod content_line_maker;
-mod dyeh;
-mod log_list;
-mod log_parser;
-mod metadata;
-mod provider;
-mod status_bar;
-mod theme;
-mod ui_logger;
-
 use crossterm::event;
+use lazylog_dyeh::DyehLogProvider;
+use lazylog_framework::start_with_provider;
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
@@ -33,7 +23,17 @@ fn main() -> io::Result<()> {
         original_hook(panic_info);
     }));
 
-    let app_result = app::start(&mut terminal);
+    // DYEH-specific: hardcoded path to DouyinAR logs
+    let log_dir_path = match dirs::home_dir() {
+        Some(path) => path.join("Library/Application Support/DouyinAR"),
+        None => {
+            eprintln!("Error: Could not determine home directory");
+            return Ok(());
+        }
+    };
+
+    let provider = DyehLogProvider::new(log_dir_path);
+    let app_result = start_with_provider(&mut terminal, provider);
 
     restore_terminal()?;
 

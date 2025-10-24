@@ -1,5 +1,5 @@
-use crate::provider::LogItem;
 use lazy_static::lazy_static;
+use lazylog_framework::provider::LogItem;
 use regex::Regex;
 use std::ops::Range;
 

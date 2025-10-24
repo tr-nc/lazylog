@@ -1,9 +1,6 @@
-use crate::{
-    dyeh::{file_finder, parser::process_delta},
-    metadata,
-    provider::{LogItem, LogProvider},
-};
+use crate::{file_finder, metadata, parser::process_delta};
 use anyhow::Result;
+use lazylog_framework::provider::{LogItem, LogProvider};
 use memmap2::MmapOptions;
 use std::{
     fs::File,

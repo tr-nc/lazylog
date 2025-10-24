@@ -1,0 +1,18 @@
+[package]
+name = "lazylog"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "ByteDance internal log viewer for DYEH"
+publish = false  # Don't publish to crates.io
+
+[[bin]]
+name = "lazylog"
+path = "src/main.rs"
+
+[dependencies]
+lazylog-framework = { path = "../lazylog-framework" }
+lazylog-dyeh = { path = "../lazylog-dyeh" }
+crossterm.workspace = true
+dirs.workspace = true
+ratatui.workspace = true

@@ -1,0 +1,21 @@
+[package]
+name = "lazylog-dyeh"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "DYEH log provider for lazylog (internal)"
+publish = false  # Don't publish to crates.io
+
+[lib]
+name = "lazylog_dyeh"
+path = "src/lib.rs"
+
+[dependencies]
+lazylog-framework = { path = "../lazylog-framework" }
+anyhow.workspace = true
+dirs.workspace = true
+lazy_static.workspace = true
+libc.workspace = true
+log.workspace = true
+memmap2.workspace = true
+regex.workspace = true

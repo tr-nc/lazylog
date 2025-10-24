@@ -1,10 +1,9 @@
 use crate::{
     app_block::AppBlock,
     content_line_maker::{WrappingMode, calculate_content_width, content_into_lines},
-    dyeh::DyehLogProvider,
     log_list::LogList,
     log_parser::{LogDetailLevel, LogItem},
-    provider::spawn_provider_thread,
+    provider::{LogProvider, spawn_provider_thread},
     status_bar::{DisplayEvent, StatusBar},
     theme,
     ui_logger::UiLogger,
@@ -24,7 +23,6 @@ use ringbuf::{
 };
 use std::{
     io,
-    path::PathBuf,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -50,25 +48,29 @@ impl Default for AppDesc {
     }
 }
 
-pub fn start(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
-    start_with_desc(terminal, AppDesc::default())
+/// Start the application with default configuration
+pub fn start_with_provider<P>(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    provider: P,
+) -> Result<()>
+where
+    P: LogProvider + 'static,
+{
+    start_with_desc(terminal, provider, AppDesc::default())
 }
 
-pub fn start_with_desc(
+/// Start the application with custom configuration
+pub fn start_with_desc<P>(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    provider: P,
     desc: AppDesc,
-) -> Result<()> {
+) -> Result<()>
+where
+    P: LogProvider + 'static,
+{
     color_eyre::install().or(Err(anyhow!("Error installing color_eyre")))?;
 
-    // DYEH 540 adaptation: point to parent directory to support both "Logs" and "Log" subdirectories
-    let log_dir_path = match dirs::home_dir() {
-        Some(path) => path.join("Library/Application Support/DouyinAR"),
-        None => {
-            return Err(anyhow!("Error getting home directory"));
-        }
-    };
-
-    let app = App::new(log_dir_path, desc.clone());
+    let app = App::new(provider, desc.clone());
     app.run(terminal, &desc)
 }
 
@@ -115,15 +117,17 @@ impl App {
         debug_logs
     }
 
-    fn new(log_dir_path: PathBuf, desc: AppDesc) -> Self {
+    fn new<P>(provider: P, desc: AppDesc) -> Self
+    where
+        P: LogProvider + 'static,
+    {
         let debug_logs = Self::setup_logger();
 
         // create ring buffer
         let ring_buffer = HeapRb::<LogItem>::new(desc.ring_buffer_size);
         let (producer, consumer) = ring_buffer.split();
 
-        // create and spawn provider
-        let provider = DyehLogProvider::new(log_dir_path);
+        // spawn provider thread
         let poll_interval = desc.poll_interval;
         let (provider_thread, provider_stop_signal) =
             spawn_provider_thread(provider, producer, poll_interval);

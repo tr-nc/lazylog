@@ -1,0 +1,30 @@
+[package]
+name = "lazylog-framework"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "A framework for building terminal-based log viewers with vim-like navigation"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/your-org/lazylog"
+keywords = ["tui", "terminal", "log", "viewer", "ratatui"]
+categories = ["command-line-utilities", "development-tools"]
+
+[lib]
+name = "lazylog_framework"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow.workspace = true
+arboard.workspace = true
+color-eyre.workspace = true
+crossterm.workspace = true
+itertools.workspace = true
+lazy_static.workspace = true
+log.workspace = true
+once_cell.workspace = true
+ratatui.workspace = true
+regex.workspace = true
+ringbuf.workspace = true
+simplelog.workspace = true
+unicode-width.workspace = true
+uuid.workspace = true
