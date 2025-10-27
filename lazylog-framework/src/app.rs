@@ -255,7 +255,7 @@ impl App {
             return Ok(());
         }
 
-        let old_items_count = self.displaying_logs.items.len();
+        let old_items_count = self.displaying_logs.len();
         let previous_uuid = self.selected_log_uuid;
         let previous_scroll_pos = Some(self.logs_block.get_scroll_position());
 
@@ -264,7 +264,9 @@ impl App {
 
         let filter_query = self.get_filter_query();
         if filter_query.is_empty() {
-            self.displaying_logs = LogList::new(self.raw_logs.clone());
+            // no filter: show all items
+            let all_indices: Vec<usize> = (0..self.raw_logs.len()).collect();
+            self.displaying_logs = LogList::new(all_indices);
         } else {
             self.rebuild_filtered_list();
         }
@@ -277,7 +279,7 @@ impl App {
         }
 
         {
-            let new_items_count = self.displaying_logs.items.len();
+            let new_items_count = self.displaying_logs.len();
             let items_added = new_items_count.saturating_sub(old_items_count);
 
             if self.autoscroll {
@@ -329,7 +331,7 @@ impl App {
 
             // if the previously selected item is no longer in the filtered list,
             // select the first available item
-            if self.selected_log_uuid.is_none() && !self.displaying_logs.items.is_empty() {
+            if self.selected_log_uuid.is_none() && !self.displaying_logs.is_empty() {
                 self.displaying_logs.select_first();
                 self.update_selected_uuid();
             }
@@ -339,7 +341,7 @@ impl App {
         }
 
         {
-            let new_total = self.displaying_logs.items.len();
+            let new_total = self.displaying_logs.len();
             let mut pos = prev_scroll_pos;
             if new_total == 0 {
                 pos = 0;
@@ -367,20 +369,24 @@ impl App {
     fn rebuild_filtered_list(&mut self) {
         let filter_query = self.get_filter_query();
         if filter_query.is_empty() {
-            self.displaying_logs = LogList::new(self.raw_logs.clone());
+            // no filter: show all items by creating indices [0, 1, 2, ..., n-1]
+            let all_indices: Vec<usize> = (0..self.raw_logs.len()).collect();
+            self.displaying_logs = LogList::new(all_indices);
         } else {
-            let filtered_items: Vec<LogItem> = self
+            // filter: collect indices of matching items
+            let filtered_indices: Vec<usize> = self
                 .raw_logs
                 .iter()
-                .filter(|item| item.contains(filter_query, self.detail_level))
-                .cloned()
+                .enumerate()
+                .filter(|(_, item)| item.contains(filter_query, self.detail_level))
+                .map(|(idx, _)| idx)
                 .collect();
-            self.displaying_logs = LogList::new(filtered_items);
+            self.displaying_logs = LogList::new(filtered_indices);
         }
     }
 
     fn update_logs_scrollbar_state(&mut self) {
-        let total = self.displaying_logs.items.len();
+        let total = self.displaying_logs.len();
 
         {
             let max_top = total.saturating_sub(1);
@@ -520,7 +526,7 @@ impl App {
         } else {
             format!(
                 "[1]─Logs - {} of {}",
-                self.displaying_logs.items.len(),
+                self.displaying_logs.len(),
                 self.raw_logs.len()
             )
         };
@@ -534,7 +540,7 @@ impl App {
         let logs_block_id = self.logs_block.id();
 
         let selected_index = self.displaying_logs.state.selected();
-        let total_lines = self.displaying_logs.items.len();
+        let total_lines = self.displaying_logs.len();
 
         // Calculate content first to determine if horizontal scrollbar is needed
         let temp_inner_area = self
@@ -614,7 +620,9 @@ impl App {
 
         for i in start..end {
             let item_idx = total_lines.saturating_sub(1).saturating_sub(i);
-            let log_item = &self.displaying_logs.items[item_idx];
+            // get the index into raw_logs from displaying_logs
+            let raw_idx = self.displaying_logs.get(item_idx).unwrap();
+            let log_item = &self.raw_logs[raw_idx];
 
             let detail_text = log_item.get_preview_text(self.detail_level);
             let level_style = match log_item.level.as_str() {
@@ -747,11 +755,12 @@ impl App {
         .margin(0)
         .areas(area);
 
-        let (items, state) = (&self.displaying_logs.items, &self.displaying_logs.state);
+        let (indices, state) = (&self.displaying_logs.indices, &self.displaying_logs.state);
 
         let (content, max_content_width) = if let Some(i) = state.selected() {
-            let reversed_index = items.len().saturating_sub(1).saturating_sub(i);
-            let item = &items[reversed_index];
+            let reversed_index = indices.len().saturating_sub(1).saturating_sub(i);
+            let raw_idx = indices[reversed_index];
+            let item = &self.raw_logs[raw_idx];
 
             if self.prev_selected_log_id != Some(item.id) {
                 self.prev_selected_log_id = Some(item.id);
@@ -1050,7 +1059,7 @@ impl App {
                     current_scroll_pos
                 };
 
-                let total_items = self.displaying_logs.items.len();
+                let total_items = self.displaying_logs.len();
                 let max_top = total_items.saturating_sub(1);
                 new_scroll_pos = new_scroll_pos.min(max_top);
 
@@ -1286,7 +1295,7 @@ impl App {
     }
 
     fn yank_current_log(&mut self) -> Result<()> {
-        let (items, state) = (&self.displaying_logs.items, &self.displaying_logs.state);
+        let (indices, state) = (&self.displaying_logs.indices, &self.displaying_logs.state);
 
         let Some(i) = state.selected() else {
             log::debug!("No log item selected for yanking");
@@ -1294,8 +1303,9 @@ impl App {
         };
 
         // Access items in reverse order to match the LOGS panel display order
-        let reversed_index = items.len().saturating_sub(1).saturating_sub(i);
-        let item = &items[reversed_index];
+        let reversed_index = indices.len().saturating_sub(1).saturating_sub(i);
+        let raw_idx = indices[reversed_index];
+        let item = &self.raw_logs[raw_idx];
 
         let mut clipboard = Clipboard::new()?;
         let yank_content = item.make_yank_content();
@@ -1557,9 +1567,9 @@ impl App {
     /// Find the index of a log item by its UUID
     fn find_log_by_uuid(&self, uuid: &uuid::Uuid) -> Option<usize> {
         self.displaying_logs
-            .items
+            .indices
             .iter()
-            .position(|item| &item.id == uuid)
+            .position(|&raw_idx| &self.raw_logs[raw_idx].id == uuid)
     }
 
     /// Update the selection based on the currently tracked UUID
@@ -1574,7 +1584,7 @@ impl App {
             return;
         };
 
-        let total = self.displaying_logs.items.len();
+        let total = self.displaying_logs.len();
         if total > 0 {
             let visual_index = App::to_visual_index(total, underlying_index);
             self.displaying_logs.state.select(Some(visual_index));
@@ -1590,18 +1600,19 @@ impl App {
             return;
         };
 
-        let total = self.displaying_logs.items.len();
+        let total = self.displaying_logs.len();
         if total == 0 {
             self.selected_log_uuid = None;
             return;
         }
 
         let underlying_index = App::to_underlying_index(total, visual_index);
-        let Some(item) = self.displaying_logs.items.get(underlying_index) else {
+        let Some(&raw_idx) = self.displaying_logs.indices.get(underlying_index) else {
             self.selected_log_uuid = None;
             return;
         };
 
+        let item = &self.raw_logs[raw_idx];
         self.selected_log_uuid = Some(item.id);
     }
 

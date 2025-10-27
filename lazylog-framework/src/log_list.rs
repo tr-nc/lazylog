@@ -1,21 +1,32 @@
-use crate::log_parser::LogItem;
 use ratatui::widgets::ListState;
 
 pub struct LogList {
-    pub items: Vec<LogItem>,
+    pub indices: Vec<usize>,
     pub state: ListState,
 }
 
 impl LogList {
-    pub fn new(items: Vec<LogItem>) -> Self {
+    pub fn new(indices: Vec<usize>) -> Self {
         Self {
-            items,
+            indices,
             state: ListState::default(),
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.indices.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.indices.is_empty()
+    }
+
+    pub fn get(&self, idx: usize) -> Option<usize> {
+        self.indices.get(idx).copied()
+    }
+
     pub fn select_next_circular(&mut self) {
-        let len = self.items.len();
+        let len = self.indices.len();
         if len == 0 {
             self.state.select(None);
             return;
@@ -36,7 +47,7 @@ impl LogList {
     }
 
     pub fn select_previous_circular(&mut self) {
-        let len = self.items.len();
+        let len = self.indices.len();
         if len == 0 {
             self.state.select(None);
             return;
@@ -57,7 +68,7 @@ impl LogList {
     }
 
     pub fn select_next(&mut self) {
-        let len = self.items.len();
+        let len = self.indices.len();
         if len == 0 {
             self.state.select(None);
             return;
@@ -78,7 +89,7 @@ impl LogList {
     }
 
     pub fn select_previous(&mut self) {
-        let len = self.items.len();
+        let len = self.indices.len();
         if len == 0 {
             self.state.select(None);
             return;
@@ -99,7 +110,7 @@ impl LogList {
     }
 
     pub fn select_first(&mut self) {
-        if self.items.is_empty() {
+        if self.indices.is_empty() {
             self.state.select(None);
         } else {
             self.state.select(Some(0));
