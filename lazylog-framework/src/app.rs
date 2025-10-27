@@ -524,6 +524,9 @@ impl App {
                 self.raw_logs.len()
             )
         };
+
+        self.update_autoscroll_state();
+
         if self.autoscroll {
             title += " - Autoscrolling";
         }
@@ -702,10 +705,11 @@ impl App {
             logs_block.get_horizontal_scrollbar_state(),
         );
 
-        self.update_autoscroll_state();
-
         if selection_changed {
             self.update_selected_uuid();
+            // Note: ensure_selection_visible and update_logs_scrollbar_state not needed here
+            // because the clicked item is already visible and scrollbar state was updated above
+            self.autoscroll = false;
         }
 
         Ok(())
@@ -1064,6 +1068,15 @@ impl App {
         self.autoscroll = self.logs_block.get_scroll_position() == 0;
     }
 
+    /// Update the UI after manually changing selection
+    /// This ensures the selection is visible, disables autoscroll, and updates scrollbar
+    fn after_selection_change(&mut self) -> Result<()> {
+        self.ensure_selection_visible()?;
+        self.autoscroll = false;
+        self.update_logs_scrollbar_state();
+        Ok(())
+    }
+
     fn handle_log_item_scrolling(&mut self, move_next: bool, circular: bool) -> Result<()> {
         match (move_next, circular) {
             (true, true) => {
@@ -1081,9 +1094,7 @@ impl App {
         }
 
         self.update_selected_uuid();
-
-        self.ensure_selection_visible()?;
-        self.update_logs_scrollbar_state();
+        self.after_selection_change()?;
         Ok(())
     }
 
@@ -1481,10 +1492,7 @@ impl App {
                 Ok(())
             }
             KeyCode::Char(' ') => {
-                // force the selected log to be visible in block 1
-                self.ensure_selection_visible()?;
-                self.update_autoscroll_state();
-                self.update_logs_scrollbar_state();
+                self.after_selection_change()?;
                 Ok(())
             }
             KeyCode::Char('g') => {
