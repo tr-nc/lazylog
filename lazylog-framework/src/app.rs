@@ -32,6 +32,14 @@ use std::{
     time::Duration,
 };
 
+// constants
+const DEFAULT_POLL_INTERVAL_MS: u64 = 100;
+const DEFAULT_RING_BUFFER_SIZE: usize = 16384;
+const HELP_POPUP_WIDTH: u16 = 60;
+const SCROLL_PAD: usize = 1;
+const HORIZONTAL_SCROLL_STEP: usize = 5;
+const DISPLAY_EVENT_DURATION_MS: u64 = 800;
+
 #[derive(Clone)]
 pub struct AppDesc {
     pub poll_interval: Duration,
@@ -42,9 +50,9 @@ pub struct AppDesc {
 impl Default for AppDesc {
     fn default() -> Self {
         Self {
-            poll_interval: Duration::from_millis(100),
+            poll_interval: Duration::from_millis(DEFAULT_POLL_INTERVAL_MS),
             show_debug_logs: false,
-            ring_buffer_size: 16384, // 16K capacity for good buffering
+            ring_buffer_size: DEFAULT_RING_BUFFER_SIZE,
         }
     }
 }
@@ -107,6 +115,9 @@ struct App {
     mouse_event: Option<MouseEvent>,
 }
 
+// ============================================================================
+// Initialization
+// ============================================================================
 impl App {
     fn setup_logger() -> Arc<Mutex<Vec<String>>> {
         let debug_logs = Arc::new(Mutex::new(Vec::new()));
@@ -177,7 +188,12 @@ impl App {
             mouse_event: None,
         }
     }
+}
 
+// ============================================================================
+// Lifecycle
+// ============================================================================
+impl App {
     fn run(
         mut self,
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
@@ -238,7 +254,12 @@ impl App {
 
         Ok(())
     }
+}
 
+// ============================================================================
+// Utility methods
+// ============================================================================
+impl App {
     fn to_underlying_index(total: usize, visual_index: usize) -> usize {
         total.saturating_sub(1).saturating_sub(visual_index)
     }
@@ -247,6 +268,15 @@ impl App {
         total.saturating_sub(1).saturating_sub(underlying_index)
     }
 
+    fn is_log_block_focused(&self) -> Result<bool> {
+        Ok(self.get_display_focused_block() == self.logs_block.id())
+    }
+}
+
+// ============================================================================
+// Log and filter management
+// ============================================================================
+impl App {
     fn update_logs(&mut self) -> Result<()> {
         // consume all available logs from ring buffer
         let mut new_logs = Vec::new();
@@ -386,7 +416,12 @@ impl App {
             self.logs_block.update_scrollbar_state(total, Some(pos));
         }
     }
+}
 
+// ============================================================================
+// Rendering
+// ============================================================================
+impl App {
     fn render_footer(&self, area: Rect, buf: &mut Buffer) -> Result<()> {
         // determine middle text (help, filter, or display event)
         let (mid_text, custom_style) = if let Some(event) = &self.display_event {
@@ -476,7 +511,7 @@ impl App {
 
         let popup_area = Layout::horizontal([
             Constraint::Fill(1),
-            Constraint::Length(60),
+            Constraint::Length(HELP_POPUP_WIDTH),
             Constraint::Fill(1),
         ])
         .split(popup_area)[1];
@@ -1002,11 +1037,12 @@ impl App {
 
         Ok(())
     }
+}
 
-    fn is_log_block_focused(&self) -> Result<bool> {
-        Ok(self.get_display_focused_block() == self.logs_block.id())
-    }
-
+// ============================================================================
+// Selection and state management
+// ============================================================================
+impl App {
     fn ensure_selection_visible(&mut self) -> Result<()> {
         let selected_index = self.displaying_logs.state.selected();
 
@@ -1032,7 +1068,7 @@ impl App {
                     return Ok(());
                 }
 
-                let pad = if visible_height > 2 { 1 } else { 0 };
+                let pad = if visible_height > 2 { SCROLL_PAD } else { 0 };
 
                 let view_start = current_scroll_pos;
                 let view_end = current_scroll_pos + visible_height.saturating_sub(1);
@@ -1075,6 +1111,63 @@ impl App {
         Ok(())
     }
 
+    /// Find the index of a log item by its UUID
+    fn find_log_by_uuid(&self, uuid: &uuid::Uuid) -> Option<usize> {
+        self.displaying_logs
+            .indices
+            .iter()
+            .position(|&raw_idx| &self.raw_logs[raw_idx].id == uuid)
+    }
+
+    /// Update the selection based on the currently tracked UUID
+    fn update_selection_by_uuid(&mut self) {
+        let Some(uuid) = self.selected_log_uuid else {
+            return;
+        };
+
+        let Some(underlying_index) = self.find_log_by_uuid(&uuid) else {
+            self.displaying_logs.state.select(None);
+            self.selected_log_uuid = None;
+            return;
+        };
+
+        let total = self.displaying_logs.len();
+        if total > 0 {
+            let visual_index = App::to_visual_index(total, underlying_index);
+            self.displaying_logs.state.select(Some(visual_index));
+        } else {
+            self.displaying_logs.state.select(None);
+        }
+    }
+
+    /// Update the tracked UUID when selection changes
+    fn update_selected_uuid(&mut self) {
+        let Some(visual_index) = self.displaying_logs.state.selected() else {
+            self.selected_log_uuid = None;
+            return;
+        };
+
+        let total = self.displaying_logs.len();
+        if total == 0 {
+            self.selected_log_uuid = None;
+            return;
+        }
+
+        let underlying_index = App::to_underlying_index(total, visual_index);
+        let Some(&raw_idx) = self.displaying_logs.indices.get(underlying_index) else {
+            self.selected_log_uuid = None;
+            return;
+        };
+
+        let item = &self.raw_logs[raw_idx];
+        self.selected_log_uuid = Some(item.id);
+    }
+}
+
+// ============================================================================
+// Scrolling operations
+// ============================================================================
+impl App {
     fn handle_log_item_scrolling(&mut self, move_next: bool, circular: bool) -> Result<()> {
         match (move_next, circular) {
             (true, true) => {
@@ -1218,9 +1311,11 @@ impl App {
 
         let max_scroll = content_width.saturating_sub(viewport_width);
         let new_position = if move_right {
-            current_position.saturating_add(5).min(max_scroll)
+            current_position
+                .saturating_add(HORIZONTAL_SCROLL_STEP)
+                .min(max_scroll)
         } else {
-            current_position.saturating_sub(5)
+            current_position.saturating_sub(HORIZONTAL_SCROLL_STEP)
         };
 
         block.set_horizontal_scroll_position(new_position);
@@ -1228,7 +1323,12 @@ impl App {
 
         Ok(())
     }
+}
 
+// ============================================================================
+// Event handling
+// ============================================================================
+impl App {
     fn handle_mouse_event(&mut self, mouse: &MouseEvent) -> Result<()> {
         match mouse.kind {
             MouseEventKind::ScrollDown => {
@@ -1304,7 +1404,7 @@ impl App {
 
         self.set_display_event(
             "Selected log copied to clipboard".to_string(),
-            Duration::from_millis(800),
+            Duration::from_millis(DISPLAY_EVENT_DURATION_MS),
             None, // use default style
         );
 
@@ -1474,7 +1574,11 @@ impl App {
                 } else {
                     "Text wrapping disabled"
                 };
-                self.set_display_event(message.to_string(), Duration::from_millis(800), None);
+                self.set_display_event(
+                    message.to_string(),
+                    Duration::from_millis(DISPLAY_EVENT_DURATION_MS),
+                    None,
+                );
 
                 Ok(())
             }
@@ -1512,7 +1616,12 @@ impl App {
             _ => Ok(()),
         }
     }
+}
 
+// ============================================================================
+// Focus management
+// ============================================================================
+impl App {
     fn set_hard_focused_block(&mut self, block_id: uuid::Uuid) {
         self.hard_focused_block_id = block_id;
     }
@@ -1555,63 +1664,12 @@ impl App {
 
         None
     }
+}
 
-    fn clear_event(&mut self) {
-        self.mouse_event = None;
-    }
-
-    /// Find the index of a log item by its UUID
-    fn find_log_by_uuid(&self, uuid: &uuid::Uuid) -> Option<usize> {
-        self.displaying_logs
-            .indices
-            .iter()
-            .position(|&raw_idx| &self.raw_logs[raw_idx].id == uuid)
-    }
-
-    /// Update the selection based on the currently tracked UUID
-    fn update_selection_by_uuid(&mut self) {
-        let Some(uuid) = self.selected_log_uuid else {
-            return;
-        };
-
-        let Some(underlying_index) = self.find_log_by_uuid(&uuid) else {
-            self.displaying_logs.state.select(None);
-            self.selected_log_uuid = None;
-            return;
-        };
-
-        let total = self.displaying_logs.len();
-        if total > 0 {
-            let visual_index = App::to_visual_index(total, underlying_index);
-            self.displaying_logs.state.select(Some(visual_index));
-        } else {
-            self.displaying_logs.state.select(None);
-        }
-    }
-
-    /// Update the tracked UUID when selection changes
-    fn update_selected_uuid(&mut self) {
-        let Some(visual_index) = self.displaying_logs.state.selected() else {
-            self.selected_log_uuid = None;
-            return;
-        };
-
-        let total = self.displaying_logs.len();
-        if total == 0 {
-            self.selected_log_uuid = None;
-            return;
-        }
-
-        let underlying_index = App::to_underlying_index(total, visual_index);
-        let Some(&raw_idx) = self.displaying_logs.indices.get(underlying_index) else {
-            self.selected_log_uuid = None;
-            return;
-        };
-
-        let item = &self.raw_logs[raw_idx];
-        self.selected_log_uuid = Some(item.id);
-    }
-
+// ============================================================================
+// Display events
+// ============================================================================
+impl App {
     /// Set a display event to show in the footer for a given duration
     pub fn set_display_event(&mut self, text: String, duration: Duration, style: Option<Style>) {
         self.display_event = Some(DisplayEvent::create(
@@ -1626,8 +1684,15 @@ impl App {
     fn check_and_clear_expired_event(&mut self) {
         self.display_event = DisplayEvent::check_and_clear(self.display_event.take());
     }
+
+    fn clear_event(&mut self) {
+        self.mouse_event = None;
+    }
 }
 
+// ============================================================================
+// Widget implementation
+// ============================================================================
 impl Widget for &mut App {
     fn render(self, area: Rect, buf: &mut Buffer) {
         // detect if hard focus changed since last render
