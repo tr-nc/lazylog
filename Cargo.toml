@@ -16,6 +16,7 @@ authors = ["ByteDance"]
 # Framework dependencies
 anyhow = "1.0.99"
 arboard = "3.4.1"
+chrono = "0.4"
 color-eyre = "0.6.5"
 crossterm = "0.29.0"
 itertools = "0.14.0"

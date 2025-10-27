@@ -1,7 +1,13 @@
+use chrono::Local;
 use lazy_static::lazy_static;
 use lazylog_framework::provider::LogItem;
 use regex::Regex;
 use std::ops::Range;
+
+// generate current timestamp in local timezone with the format matching the original log format
+fn current_timestamp() -> String {
+    Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string()
+}
 
 lazy_static! {
     static ref LEADING_HEADER_RE: Regex = Regex::new(
@@ -84,7 +90,7 @@ mod special_events {
                 .map(|span| MatchedEvent {
                     span,
                     item: LogItem::new(
-                        String::new(),
+                        current_timestamp(),
                         String::new(),
                         String::new(),
                         String::new(),
@@ -136,7 +142,7 @@ mod special_events {
                 .map(|span| MatchedEvent {
                     span,
                     item: LogItem::new(
-                        String::new(),
+                        current_timestamp(),
                         String::new(),
                         String::new(),
                         String::new(),
@@ -192,8 +198,9 @@ fn split_header(line: &str) -> (String, String, String, String) {
 fn parse_structured(block: &str) -> Option<LogItem> {
     ITEM_PARSE_RE.captures(block).map(|caps| {
         let raw_content = caps.get(2).map_or("", |m| m.as_str()).trim().to_string();
+        // use parsing-time timestamp instead of extracting from log
         LogItem::new(
-            caps.get(1).map_or("", |m| m.as_str()).to_string(),
+            current_timestamp(),
             String::new(),
             String::new(),
             String::new(),
