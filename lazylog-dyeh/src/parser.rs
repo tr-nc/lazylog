@@ -1,13 +1,7 @@
-use chrono::Local;
 use lazy_static::lazy_static;
 use lazylog_framework::provider::LogItem;
 use regex::Regex;
 use std::ops::Range;
-
-// generate current timestamp in local timezone (time only, no date)
-fn current_timestamp() -> String {
-    Local::now().format("%H:%M:%S%.3f").to_string()
-}
 
 lazy_static! {
     static ref LEADING_HEADER_RE: Regex = Regex::new(
@@ -90,7 +84,6 @@ mod special_events {
                 .map(|span| MatchedEvent {
                     span,
                     item: LogItem::new(
-                        current_timestamp(),
                         String::new(),
                         String::new(),
                         String::new(),
@@ -142,7 +135,6 @@ mod special_events {
                 .map(|span| MatchedEvent {
                     span,
                     item: LogItem::new(
-                        current_timestamp(),
                         String::new(),
                         String::new(),
                         String::new(),
@@ -198,9 +190,7 @@ fn split_header(line: &str) -> (String, String, String, String) {
 fn parse_structured(block: &str) -> Option<LogItem> {
     ITEM_PARSE_RE.captures(block).map(|caps| {
         let raw_content = caps.get(2).map_or("", |m| m.as_str()).trim().to_string();
-        // use parsing-time timestamp instead of extracting from log
         LogItem::new(
-            current_timestamp(),
             String::new(),
             String::new(),
             String::new(),
@@ -238,7 +228,7 @@ pub fn process_delta(delta: &str) -> Vec<LogItem> {
                 && let Some(it) = parse_structured(&body[s..e])
             {
                 let (o, l, t, msg) = split_header(&it.content);
-                let updated_item = LogItem::new(it.time, l, o, t, msg, it.raw_content);
+                let updated_item = LogItem::new(l, o, t, msg, it.raw_content);
                 positioned.push((s, updated_item));
             }
         }

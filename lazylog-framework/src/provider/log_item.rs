@@ -1,3 +1,4 @@
+use chrono::Local;
 use uuid::Uuid;
 
 /// represents a single log entry from any log source
@@ -14,7 +15,6 @@ pub struct LogItem {
 
 impl LogItem {
     pub fn new(
-        time: String,
         level: String,
         origin: String,
         tag: String,
@@ -23,7 +23,7 @@ impl LogItem {
     ) -> Self {
         Self {
             id: Uuid::new_v4(),
-            time,
+            time: Local::now().format("%H:%M:%S%.3f").to_string(),
             level,
             origin,
             tag,

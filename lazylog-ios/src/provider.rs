@@ -32,14 +32,10 @@ impl IosLogProvider {
                 String::new(),
                 String::new(),
                 String::new(),
-                String::new(),
                 raw_log.to_string(),
                 raw_log.to_string(),
             );
         }
-
-        // timestamp: first 3 parts
-        let time = format!("{} {} {}", parts[0], parts[1], parts[2]);
 
         // device name
         let origin = parts[3].to_string();
@@ -66,7 +62,7 @@ impl IosLogProvider {
             (String::new(), level_and_content.to_string())
         };
 
-        LogItem::new(time, level, origin, tag, content, raw_log.to_string())
+        LogItem::new(level, origin, tag, content, raw_log.to_string())
     }
 }
 

@@ -16,6 +16,7 @@ path = "src/lib.rs"
 [dependencies]
 anyhow.workspace = true
 arboard.workspace = true
+chrono.workspace = true
 color-eyre.workspace = true
 crossterm.workspace = true
 itertools.workspace = true
