@@ -17,7 +17,8 @@
       "Bash(chmod:*)",
       "WebFetch(domain:docs.rs)",
       "Bash(mkdir:*)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Read(//Users/bytedance/code/idevice-test/**)"
     ],
     "deny": [],
     "ask": []
