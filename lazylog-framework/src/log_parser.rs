@@ -23,24 +23,14 @@ impl LogItem {
     fn format_with_fields(&self, detail_level: LogDetailLevel, content: &str) -> String {
         let field_order = [
             ("time", &self.time),
+            ("level", &self.level),
             ("tag", &self.tag),
             ("origin", &self.origin),
-            ("level", &self.level),
         ];
 
         match detail_level {
             LogDetailLevel::ContentOnly => content.to_string(),
             LogDetailLevel::Basic => {
-                let mut parts = Vec::new();
-                if let Some((_, field_value)) = field_order.first()
-                    && !field_value.is_empty()
-                {
-                    parts.push(format!("[{}]", field_value));
-                }
-                parts.push(content.to_string());
-                parts.join(" ")
-            }
-            LogDetailLevel::Medium => {
                 let mut parts = Vec::new();
                 for (_, field_value) in field_order.iter().take(2) {
                     if !field_value.is_empty() {
@@ -50,9 +40,19 @@ impl LogItem {
                 parts.push(content.to_string());
                 parts.join(" ")
             }
-            LogDetailLevel::Detailed => {
+            LogDetailLevel::Medium => {
                 let mut parts = Vec::new();
                 for (_, field_value) in field_order.iter().take(3) {
+                    if !field_value.is_empty() {
+                        parts.push(format!("[{}]", field_value));
+                    }
+                }
+                parts.push(content.to_string());
+                parts.join(" ")
+            }
+            LogDetailLevel::Detailed => {
+                let mut parts = Vec::new();
+                for (_, field_value) in field_order.iter() {
                     if !field_value.is_empty() {
                         parts.push(format!("[{}]", field_value));
                     }
@@ -76,11 +76,11 @@ impl LogItem {
 
 impl LogDetailLevel {
     pub fn increment(&self) -> Self {
-        self.cycle_forward()
+        self.select_forward()
     }
 
     pub fn decrement(&self) -> Self {
-        self.cycle_backward()
+        self.select_backward()
     }
 }
 
