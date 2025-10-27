@@ -1413,12 +1413,6 @@ impl App {
                 }
                 Ok(())
             }
-            KeyCode::Char(' ') => {
-                // force the selected log to be visible in block 1
-                self.ensure_selection_visible()?;
-                self.update_logs_scrollbar_state();
-                Ok(())
-            }
             KeyCode::Char('/') => {
                 self.filter_input = "/".to_string();
                 self.filter_focused = true;
@@ -1486,9 +1480,18 @@ impl App {
                 self.show_help_popup = !self.show_help_popup;
                 Ok(())
             }
+            KeyCode::Char(' ') => {
+                // force the selected log to be visible in block 1
+                self.ensure_selection_visible()?;
+                self.update_autoscroll_state();
+                self.update_logs_scrollbar_state();
+                Ok(())
+            }
             KeyCode::Char('g') => {
-                // move view to top without changing selection
                 self.logs_block.set_scroll_position(0);
+                // force autoscroll to be true so that we don't wait for the next render to update the scrollbar state
+                // waiting for the next render may cause new logs arrive beforehand, thus the view is not at the top
+                self.update_autoscroll_state();
                 self.update_logs_scrollbar_state();
                 Ok(())
             }
