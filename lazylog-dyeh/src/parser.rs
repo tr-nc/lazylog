@@ -4,9 +4,9 @@ use lazylog_framework::provider::LogItem;
 use regex::Regex;
 use std::ops::Range;
 
-// generate current timestamp in local timezone with the format matching the original log format
+// generate current timestamp in local timezone (time only, no date)
 fn current_timestamp() -> String {
-    Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string()
+    Local::now().format("%H:%M:%S%.3f").to_string()
 }
 
 lazy_static! {
