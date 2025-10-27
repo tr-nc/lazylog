@@ -450,14 +450,13 @@ impl App {
         let help_text = vec![
             Line::from("Navigation:".bold()),
             Line::from("  j/k/↑/↓  - Move to prev/next log"),
-            Line::from("  space    - Jump to top"),
-            Line::from("  g        - Make selected log visible in view"),
+            Line::from("  g        - Jump to top"),
+            Line::from("  space    - Make selected log visible in view"),
             Line::from(""),
             Line::from("Actions:".bold()),
             Line::from("  /        - Enter filter mode"),
             Line::from("  y        - Copy current log to clipboard"),
             Line::from("  c        - Clear all logs"),
-            Line::from("  d        - Toggle debug logs panel"),
             Line::from("  w        - Toggle text wrapping"),
             Line::from("  [        - Decrease detail level"),
             Line::from("  ]        - Increase detail level"),
@@ -1415,8 +1414,7 @@ impl App {
                 Ok(())
             }
             KeyCode::Char(' ') => {
-                self.displaying_logs.select_first();
-                self.update_selected_uuid();
+                // force the selected log to be visible in block 1
                 self.ensure_selection_visible()?;
                 self.update_logs_scrollbar_state();
                 Ok(())
@@ -1489,7 +1487,8 @@ impl App {
                 Ok(())
             }
             KeyCode::Char('g') => {
-                // force the selected log to be visible in block 1
+                self.displaying_logs.select_first();
+                self.update_selected_uuid();
                 self.ensure_selection_visible()?;
                 self.update_logs_scrollbar_state();
                 Ok(())
