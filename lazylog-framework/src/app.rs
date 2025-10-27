@@ -1426,6 +1426,7 @@ impl App {
             KeyCode::Char('/') => {
                 self.filter_input = "/".to_string();
                 self.filter_focused = true;
+                self.apply_filter();
                 Ok(())
             }
             KeyCode::Char('[') => {
