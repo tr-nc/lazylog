@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "lazylog-framework",
     "lazylog-dyeh",
+    "lazylog-ios",
     "lazylog-bin",
 ]
 
@@ -33,3 +34,6 @@ dirs = "6.0.0"
 libc = "0.2.175"
 memmap2 = "0.9.8"
 notify = "8.2.0"
+
+# iOS-specific dependencies
+tokio = { version = "1", features = ["full"] }

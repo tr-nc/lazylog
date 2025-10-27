@@ -1,0 +1,17 @@
+[package]
+name = "lazylog-ios"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+# framework
+lazylog-framework = { path = "../lazylog-framework" }
+
+# workspace dependencies
+anyhow.workspace = true
+log.workspace = true
+
+# iOS-specific dependencies
+tokio = { version = "1", features = ["full"] }
+idevice = { path = "../../idevice-test/idevice/idevice", features = ["usbmuxd", "syslog_relay", "pair"] }
