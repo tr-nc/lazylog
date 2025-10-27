@@ -421,6 +421,13 @@ impl App {
 // ============================================================================
 // Rendering
 // ============================================================================
+
+#[derive(Copy, Clone)]
+enum ScrollableBlockType {
+    Details,
+    Debug,
+}
+
 impl App {
     fn render_footer(&self, area: Rect, buf: &mut Buffer) -> Result<()> {
         // determine middle text (help, filter, or display event)
@@ -528,6 +535,137 @@ impl App {
             .block(block)
             .fg(theme::TEXT_FG_COLOR)
             .render(popup_area, buf);
+
+        Ok(())
+    }
+
+    /// Common rendering logic for scrollable blocks (details and debug logs)
+    fn render_scrollable_block(
+        &mut self,
+        area: Rect,
+        buf: &mut Buffer,
+        block_type: ScrollableBlockType,
+        content: Vec<Line>,
+        max_content_width: usize,
+    ) -> Result<()> {
+        // store last area based on block type
+        match block_type {
+            ScrollableBlockType::Details => self.last_details_area = Some(area),
+            ScrollableBlockType::Debug => self.last_debug_area = Some(area),
+        }
+
+        // get block ID and check if focused
+        let block_id = match block_type {
+            ScrollableBlockType::Details => self.details_block.id(),
+            ScrollableBlockType::Debug => self.debug_block.id(),
+        };
+        let is_focused = self.get_display_focused_block() == block_id;
+
+        // handle mouse events for hard/soft focus
+        let should_hard_focus = if let Some(event) = self.mouse_event {
+            let is_left_click = event.kind
+                == crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left);
+
+            // get block for checking bounds
+            let block_ref = match block_type {
+                ScrollableBlockType::Details => &self.details_block,
+                ScrollableBlockType::Debug => &self.debug_block,
+            };
+            let inner_area = block_ref.build(false).inner(area);
+            let is_within_bounds =
+                inner_area.contains(ratatui::layout::Position::new(event.column, event.row));
+
+            if event.kind == crossterm::event::MouseEventKind::Moved && is_within_bounds {
+                self.set_soft_focused_block(block_id);
+            }
+
+            is_left_click && is_within_bounds
+        } else {
+            false
+        };
+
+        if should_hard_focus {
+            self.set_hard_focused_block(block_id);
+        }
+
+        // create horizontal layout for content and vertical scrollbar
+        let [vertical_content_area, scrollbar_area] = Layout::horizontal([
+            Constraint::Fill(1),   // main content takes most space
+            Constraint::Length(1), // scrollbar is 1 character wide
+        ])
+        .margin(0)
+        .areas(area);
+
+        let lines_count = content.len();
+
+        // determine if horizontal scrollbar is needed
+        let block_ref = match block_type {
+            ScrollableBlockType::Details => &self.details_block,
+            ScrollableBlockType::Debug => &self.debug_block,
+        };
+        let temp_content_rect = block_ref.get_content_rect(vertical_content_area, is_focused);
+        let needs_horizontal_scrollbar = max_content_width > temp_content_rect.width as usize;
+
+        // create vertical layout for content and horizontal scrollbar
+        let [content_area, horizontal_scrollbar_area] = Layout::vertical([
+            Constraint::Fill(1),   // main content
+            Constraint::Length(1), // horizontal scrollbar height
+        ])
+        .margin(0)
+        .areas(vertical_content_area);
+
+        // get mutable reference to update state
+        let block = match block_type {
+            ScrollableBlockType::Details => &mut self.details_block,
+            ScrollableBlockType::Debug => &mut self.debug_block,
+        };
+
+        let content_rect = block.get_content_rect(content_area, is_focused);
+        block.update_horizontal_scrollbar_state(max_content_width, content_rect.width as usize);
+        block.set_lines_count(lines_count);
+        let scroll_position = block.get_scroll_position();
+        block.update_scrollbar_state(lines_count, Some(scroll_position));
+
+        let h_scroll = if needs_horizontal_scrollbar {
+            block.get_horizontal_scroll_position() as u16
+        } else {
+            0
+        };
+
+        let block_widget = block.build(is_focused);
+
+        // render paragraph with scrolling
+        Paragraph::new(content)
+            .block(block_widget)
+            .fg(theme::TEXT_FG_COLOR)
+            .scroll((scroll_position as u16, h_scroll))
+            .render(content_area, buf);
+
+        // render vertical scrollbar
+        let scrollbar = AppBlock::create_scrollbar(is_focused);
+        let block_ref = match block_type {
+            ScrollableBlockType::Details => &mut self.details_block,
+            ScrollableBlockType::Debug => &mut self.debug_block,
+        };
+        StatefulWidget::render(
+            scrollbar,
+            scrollbar_area,
+            buf,
+            block_ref.get_scrollbar_state(),
+        );
+
+        // render horizontal scrollbar (track-only when not needed)
+        let horizontal_scrollbar = if needs_horizontal_scrollbar {
+            AppBlock::create_horizontal_scrollbar(is_focused)
+        } else {
+            AppBlock::create_horizontal_track_only(is_focused)
+        };
+        StatefulWidget::render(
+            horizontal_scrollbar,
+            horizontal_scrollbar_area,
+            buf,
+            block_ref.get_horizontal_scrollbar_state(),
+        );
 
         Ok(())
     }
@@ -748,40 +886,10 @@ impl App {
     }
 
     fn render_details(&mut self, area: Rect, buf: &mut Buffer) -> Result<()> {
-        self.last_details_area = Some(area);
-        let details_block_id = self.details_block.id();
-        let is_focused = self.get_display_focused_block() == details_block_id;
-
-        let should_hard_focus = if let Some(event) = self.mouse_event {
-            let is_left_click = event.kind
-                == crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left);
-            let inner_area = self.details_block.build(false).inner(area);
-            let is_within_bounds =
-                inner_area.contains(ratatui::layout::Position::new(event.column, event.row));
-
-            if event.kind == crossterm::event::MouseEventKind::Moved && is_within_bounds {
-                self.set_soft_focused_block(details_block_id);
-            }
-
-            is_left_click && is_within_bounds
-        } else {
-            false
-        };
-
-        if should_hard_focus {
-            self.set_hard_focused_block(details_block_id);
-        }
-
-        let [vertical_content_area, scrollbar_area] = Layout::horizontal([
-            Constraint::Fill(1),   // Main content takes most space
-            Constraint::Length(1), // Scrollbar is 1 character wide
-        ])
-        .margin(0)
-        .areas(area);
-
+        // handle prev_selected_log_id state management and scroll reset
         let (indices, state) = (&self.displaying_logs.indices, &self.displaying_logs.state);
 
-        let (content, max_content_width) = if let Some(i) = state.selected() {
+        if let Some(i) = state.selected() {
             let reversed_index = indices.len().saturating_sub(1).saturating_sub(i);
             let raw_idx = indices[reversed_index];
             let item = &self.raw_logs[raw_idx];
@@ -791,31 +899,76 @@ impl App {
                 self.details_block.set_scroll_position(0);
                 self.details_block.set_horizontal_scroll_position(0);
             }
+        } else if self.prev_selected_log_id.is_some() {
+            self.prev_selected_log_id = None;
+            self.details_block.set_scroll_position(0);
+            self.details_block.set_horizontal_scroll_position(0);
+            log::debug!("No log item selected - resetting details scroll position");
+        }
 
+        // clone the data we need to avoid borrow checker issues
+        let selected_item = {
+            let (indices, state) = (&self.displaying_logs.indices, &self.displaying_logs.state);
+
+            if let Some(i) = state.selected() {
+                let reversed_index = indices.len().saturating_sub(1).saturating_sub(i);
+                let raw_idx = indices[reversed_index];
+                let item = &self.raw_logs[raw_idx];
+
+                Some((
+                    item.time.clone(),
+                    item.level.clone(),
+                    item.origin.clone(),
+                    item.tag.clone(),
+                    item.content.clone(),
+                ))
+            } else {
+                None
+            }
+        };
+
+        let text_wrapping_enabled = self.text_wrapping_enabled;
+
+        // generate content using the cloned data
+        let (content, max_content_width) = if let Some((time, level, origin, tag, item_content)) =
+            &selected_item
+        {
             let mut content_lines = vec![
-                Line::from(vec!["Time:   ".bold(), item.time.clone().into()]),
-                Line::from(vec!["Level:  ".bold(), item.level.clone().into()]),
-                Line::from(vec!["Origin: ".bold(), item.origin.clone().into()]),
-                Line::from(vec!["Tag:    ".bold(), item.tag.clone().into()]),
+                Line::from(vec!["Time:   ".bold(), time.clone().into()]),
+                Line::from(vec!["Level:  ".bold(), level.clone().into()]),
+                Line::from(vec!["Origin: ".bold(), origin.clone().into()]),
+                Line::from(vec!["Tag:    ".bold(), tag.clone().into()]),
                 Line::from("Content:".bold()),
             ];
+
+            // calculate temp_content_rect to determine wrapping width
+            let [vertical_content_area, _] =
+                Layout::horizontal([Constraint::Fill(1), Constraint::Length(1)])
+                    .margin(0)
+                    .areas(area);
+
+            let [content_area, _] = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)])
+                .margin(0)
+                .areas(vertical_content_area);
+
+            let is_focused = self.get_display_focused_block() == self.details_block.id();
             let temp_content_rect = self
                 .details_block
-                .get_content_rect(vertical_content_area, is_focused);
+                .get_content_rect(content_area, is_focused);
 
-            let wrapping_mode = if self.text_wrapping_enabled {
+            let wrapping_mode = if text_wrapping_enabled {
                 WrappingMode::Wrapped
             } else {
                 WrappingMode::Unwrapped
             };
             content_lines.extend(content_into_lines(
-                &item.content,
+                item_content,
                 temp_content_rect.width,
                 wrapping_mode,
             ));
 
-            // Calculate max content width for horizontal scrolling
-            let max_content_width = if self.text_wrapping_enabled {
+            // calculate max content width for horizontal scrolling
+            let max_content_width = if text_wrapping_enabled {
                 temp_content_rect.width as usize
             } else {
                 let header_width = ["Time:   ", "Level:  ", "Origin: ", "Tag:    ", "Content:"]
@@ -823,129 +976,36 @@ impl App {
                     .map(|h| h.len())
                     .max()
                     .unwrap_or(0);
-                let item_content_width = calculate_content_width(&item.content);
+                let item_content_width = calculate_content_width(item_content);
                 header_width.max(item_content_width)
             };
 
             (content_lines, max_content_width)
         } else {
-            if self.prev_selected_log_id.is_some() {
-                self.prev_selected_log_id = None;
-                self.details_block.set_scroll_position(0);
-                self.details_block.set_horizontal_scroll_position(0);
-                log::debug!("No log item selected - resetting details scroll position");
-            }
             (
                 vec![Line::from("Select a log item to see details...".italic())],
                 0,
             )
         };
 
-        // Determine if horizontal scrollbar is needed
-        let temp_content_rect = self
-            .details_block
-            .get_content_rect(vertical_content_area, is_focused);
-        let needs_horizontal_scrollbar = max_content_width > temp_content_rect.width as usize;
-
-        // Always allocate space for horizontal scrollbar (consistent layout)
-        let [content_area, horizontal_scrollbar_area] = Layout::vertical([
-            Constraint::Fill(1),   // Main content
-            Constraint::Length(1), // Horizontal scrollbar height
-        ])
-        .margin(0)
-        .areas(vertical_content_area);
-
-        let content_rect = self
-            .details_block
-            .get_content_rect(content_area, is_focused);
-        self.details_block
-            .update_horizontal_scrollbar_state(max_content_width, content_rect.width as usize);
-
-        let lines_count = content.len();
-
-        self.details_block.set_lines_count(lines_count);
-        let scroll_position = self.details_block.get_scroll_position();
-        self.details_block
-            .update_scrollbar_state(lines_count, Some(scroll_position));
-
-        let block = self.details_block.build(is_focused);
-        let h_scroll = if needs_horizontal_scrollbar {
-            self.details_block.get_horizontal_scroll_position() as u16
-        } else {
-            0
-        };
-
-        Paragraph::new(content)
-            .block(block)
-            .fg(theme::TEXT_FG_COLOR)
-            .scroll((scroll_position as u16, h_scroll))
-            .render(content_area, buf);
-
-        let scrollbar = AppBlock::create_scrollbar(is_focused);
-
-        StatefulWidget::render(
-            scrollbar,
-            scrollbar_area,
+        // use helper to render
+        self.render_scrollable_block(
+            area,
             buf,
-            self.details_block.get_scrollbar_state(),
-        );
-
-        // Always render horizontal scrollbar area (track-only when not needed)
-        let horizontal_scrollbar = if needs_horizontal_scrollbar {
-            AppBlock::create_horizontal_scrollbar(is_focused)
-        } else {
-            AppBlock::create_horizontal_track_only(is_focused)
-        };
-        StatefulWidget::render(
-            horizontal_scrollbar,
-            horizontal_scrollbar_area,
-            buf,
-            self.details_block.get_horizontal_scrollbar_state(),
-        );
-
-        Ok(())
+            ScrollableBlockType::Details,
+            content,
+            max_content_width,
+        )
     }
 
     fn render_debug_logs(&mut self, area: Rect, buf: &mut Buffer) -> Result<()> {
-        self.last_debug_area = Some(area);
-        let debug_block_id = self.debug_block.id();
-        let is_focused = self.get_display_focused_block() == debug_block_id;
-
-        let should_hard_focus = if let Some(event) = self.mouse_event {
-            let is_left_click = event.kind
-                == crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left);
-            let inner_area = self.debug_block.build(false).inner(area);
-            let is_within_bounds =
-                inner_area.contains(ratatui::layout::Position::new(event.column, event.row));
-
-            if event.kind == crossterm::event::MouseEventKind::Moved && is_within_bounds {
-                self.set_soft_focused_block(debug_block_id);
-            }
-
-            is_left_click && is_within_bounds
-        } else {
-            false
-        };
-
-        if should_hard_focus {
-            self.set_hard_focused_block(debug_block_id);
-        }
-
-        let [vertical_content_area, scrollbar_area] = Layout::horizontal([
-            Constraint::Fill(1),   // Main content takes most space
-            Constraint::Length(1), // Scrollbar is 1 character wide
-        ])
-        .margin(0)
-        .areas(area);
-
-        let _block = self.debug_block.build(is_focused);
-
+        // generate content for the debug logs block
         let debug_logs_lines = if let Ok(logs) = self.debug_logs.lock() {
             if logs.is_empty() {
                 vec![Line::from("No debug logs...".italic())]
             } else {
                 logs.iter()
-                    .rev() // Show most recent first
+                    .rev() // show most recent first
                     .map(|log_entry| {
                         let style = if log_entry.contains("ERROR") {
                             theme::ERROR_STYLE
@@ -964,7 +1024,7 @@ impl App {
             vec![Line::from("Failed to read debug logs...".italic())]
         };
 
-        // Calculate max content width for horizontal scrolling
+        // calculate max content width for horizontal scrolling
         let max_content_width = if let Ok(logs) = self.debug_logs.lock() {
             logs.iter()
                 .map(|log_entry| log_entry.chars().count())
@@ -974,68 +1034,14 @@ impl App {
             0
         };
 
-        // Determine if horizontal scrollbar is needed
-        let temp_content_rect = self
-            .debug_block
-            .get_content_rect(vertical_content_area, is_focused);
-        let needs_horizontal_scrollbar = max_content_width > temp_content_rect.width as usize;
-
-        // Always allocate space for horizontal scrollbar (consistent layout)
-        let [content_area, horizontal_scrollbar_area] = Layout::vertical([
-            Constraint::Fill(1),   // Main content
-            Constraint::Length(1), // Horizontal scrollbar height
-        ])
-        .margin(0)
-        .areas(vertical_content_area);
-
-        let content_rect = self.debug_block.get_content_rect(content_area, is_focused);
-        self.debug_block
-            .update_horizontal_scrollbar_state(max_content_width, content_rect.width as usize);
-
-        // The debug_logs_lines vector already contains properly wrapped lines
-        let lines_count = debug_logs_lines.len();
-
-        self.debug_block.set_lines_count(lines_count);
-        let scroll_position = self.debug_block.get_scroll_position();
-        self.debug_block
-            .update_scrollbar_state(lines_count, Some(scroll_position));
-
-        let _block = self.debug_block.build(is_focused);
-        let h_scroll = if needs_horizontal_scrollbar {
-            self.debug_block.get_horizontal_scroll_position() as u16
-        } else {
-            0
-        };
-
-        Paragraph::new(debug_logs_lines)
-            .block(_block)
-            .fg(theme::TEXT_FG_COLOR)
-            .scroll((scroll_position as u16, h_scroll))
-            .render(content_area, buf);
-
-        let scrollbar = AppBlock::create_scrollbar(is_focused);
-
-        StatefulWidget::render(
-            scrollbar,
-            scrollbar_area,
+        // use helper to render
+        self.render_scrollable_block(
+            area,
             buf,
-            self.debug_block.get_scrollbar_state(),
-        );
-
-        // Always render horizontal scrollbar area (track-only when not needed)
-        let horizontal_scrollbar = if needs_horizontal_scrollbar {
-            AppBlock::create_horizontal_scrollbar(is_focused)
-        } else {
-            AppBlock::create_horizontal_track_only(is_focused)
-        };
-        StatefulWidget::render(
-            horizontal_scrollbar,
-            horizontal_scrollbar_area,
-            buf,
-            self.debug_block.get_horizontal_scrollbar_state(),
-        );
-
-        Ok(())
+            ScrollableBlockType::Debug,
+            debug_logs_lines,
+            max_content_width,
+        )
     }
 }
 
