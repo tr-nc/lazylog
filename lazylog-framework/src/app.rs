@@ -1487,9 +1487,8 @@ impl App {
                 Ok(())
             }
             KeyCode::Char('g') => {
-                self.displaying_logs.select_first();
-                self.update_selected_uuid();
-                self.ensure_selection_visible()?;
+                // move view to top without changing selection
+                self.logs_block.set_scroll_position(0);
                 self.update_logs_scrollbar_state();
                 Ok(())
             }
