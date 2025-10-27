@@ -182,11 +182,11 @@ impl IosLogProvider {
         // stream logs continuously
         loop {
             // check if we should stop
-            if let Ok(stop) = should_stop.lock() {
-                if *stop {
-                    log::debug!("Stop signal received, exiting syslog relay");
-                    break;
-                }
+            if let Ok(stop) = should_stop.lock()
+                && *stop
+            {
+                log::debug!("Stop signal received, exiting syslog relay");
+                break;
             }
 
             match syslog.next().await {
