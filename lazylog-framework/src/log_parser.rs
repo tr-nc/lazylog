@@ -6,10 +6,7 @@ pub use crate::provider::{LogDetailLevel, LogItem};
 
 impl LogItem {
     pub fn make_yank_content(&self) -> String {
-        format!(
-            "# Formatted Log\n\n## Time:\n\n{}\n\n## Level:\n\n{}\n\n## Origin:\n\n{}\n\n## Tag:\n\n{}\n\n## Content:\n\n{}\n\n# Raw Log\n\n{}",
-            self.time, self.level, self.origin, self.tag, self.content, self.raw_content
-        )
+        self.raw_content.clone()
     }
 
     pub fn contains(&self, pattern: &str, detail_level: LogDetailLevel) -> bool {
