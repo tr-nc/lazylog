@@ -13,6 +13,7 @@ pub use provider::{LogDetailLevel, LogItem, LogProvider, spawn_provider_thread};
 pub(crate) mod app;
 pub(crate) mod app_block;
 pub(crate) mod content_line_maker;
+pub(crate) mod filter;
 pub(crate) mod log_list;
 pub(crate) mod log_parser;
 pub(crate) mod status_bar;

@@ -1,0 +1,118 @@
+use crate::provider::{LogDetailLevel, LogItem};
+use rayon::prelude::*;
+
+/// filtering engine with incremental filtering and parallel processing
+pub struct FilterEngine {
+    /// previous filter query for incremental filtering
+    previous_query: String,
+    /// cached results from previous filter
+    previous_results: Vec<usize>,
+}
+
+impl FilterEngine {
+    /// create a new filter engine
+    pub fn new() -> Self {
+        Self {
+            previous_query: String::new(),
+            previous_results: Vec::new(),
+        }
+    }
+
+    /// filter logs and return indices of matching items
+    ///
+    /// uses incremental filtering when possible (query extends previous query)
+    /// uses parallel processing for large search spaces
+    pub fn filter(
+        &mut self,
+        raw_logs: &[LogItem],
+        query: &str,
+        detail_level: LogDetailLevel,
+    ) -> Vec<usize> {
+        // empty query = show all
+        if query.is_empty() {
+            self.reset();
+            return (0..raw_logs.len()).collect();
+        }
+
+        // check if we can use incremental filtering
+        let can_use_incremental = !self.previous_query.is_empty()
+            && query.starts_with(&self.previous_query)
+            && !self.previous_results.is_empty();
+
+        let search_space: Vec<usize> = if can_use_incremental {
+            // search only within previous results
+            self.previous_results.clone()
+        } else {
+            // full search
+            (0..raw_logs.len()).collect()
+        };
+
+        // pre-lowercase the pattern once (not 50K times!)
+        let pattern_lower = query.to_lowercase();
+
+        // use parallel filtering for large search spaces
+        let filtered_indices = if search_space.len() > 1000 {
+            self.filter_parallel(raw_logs, &search_space, &pattern_lower, detail_level)
+        } else {
+            self.filter_sequential(raw_logs, &search_space, &pattern_lower, detail_level)
+        };
+
+        // cache for next filter
+        self.previous_query = query.to_string();
+        self.previous_results = filtered_indices.clone();
+
+        filtered_indices
+    }
+
+    /// reset the filter cache
+    pub fn reset(&mut self) {
+        self.previous_query.clear();
+        self.previous_results.clear();
+    }
+
+    /// sequential filtering (for small search spaces)
+    fn filter_sequential(
+        &self,
+        raw_logs: &[LogItem],
+        search_space: &[usize],
+        pattern_lower: &str,
+        detail_level: LogDetailLevel,
+    ) -> Vec<usize> {
+        search_space
+            .iter()
+            .filter(|&&idx| {
+                let item = &raw_logs[idx];
+                item.get_preview_text(detail_level)
+                    .to_lowercase()
+                    .contains(pattern_lower)
+            })
+            .copied()
+            .collect()
+    }
+
+    /// parallel filtering (for large search spaces)
+    fn filter_parallel(
+        &self,
+        raw_logs: &[LogItem],
+        search_space: &[usize],
+        pattern_lower: &str,
+        detail_level: LogDetailLevel,
+    ) -> Vec<usize> {
+        search_space
+            .par_iter()
+            .filter(|&&idx| {
+                let item = &raw_logs[idx];
+                item.get_preview_text(detail_level)
+                    .to_lowercase()
+                    .contains(pattern_lower)
+            })
+            .copied()
+            .collect()
+    }
+}
+
+impl Default for FilterEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}

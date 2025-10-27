@@ -24,6 +24,7 @@ lazy_static.workspace = true
 log.workspace = true
 once_cell.workspace = true
 ratatui.workspace = true
+rayon.workspace = true
 regex.workspace = true
 ringbuf.workspace = true
 simplelog.workspace = true

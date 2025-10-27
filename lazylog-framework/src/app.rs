@@ -1,6 +1,7 @@
 use crate::{
     app_block::AppBlock,
     content_line_maker::{WrappingMode, calculate_content_width, content_into_lines},
+    filter::FilterEngine,
     log_list::LogList,
     log_parser::{LogDetailLevel, LogItem},
     provider::{LogProvider, spawn_provider_thread},
@@ -84,6 +85,7 @@ struct App {
     autoscroll: bool,
     filter_input: String, // Current filter input text (includes leading '/')
     filter_focused: bool, // Whether the filter input is focused
+    filter_engine: FilterEngine, // Filtering engine with incremental + parallel support
     detail_level: LogDetailLevel, // Detail level for log display
     debug_logs: Arc<Mutex<Vec<String>>>, // Debug log messages for UI display
     hard_focused_block_id: uuid::Uuid, // Hard focus: set by clicking, persists until another click (defaults to logs_block)
@@ -153,6 +155,7 @@ impl App {
             autoscroll: true,
             filter_input: String::new(),
             filter_focused: false,
+            filter_engine: FilterEngine::new(),
             detail_level: LogDetailLevel::default(),
             debug_logs,
             hard_focused_block_id: logs_block_id,
@@ -262,14 +265,8 @@ impl App {
         log::debug!("Received {} new log items from provider", new_logs.len());
         self.raw_logs.extend(new_logs);
 
-        let filter_query = self.get_filter_query();
-        if filter_query.is_empty() {
-            // no filter: show all items
-            let all_indices: Vec<usize> = (0..self.raw_logs.len()).collect();
-            self.displaying_logs = LogList::new(all_indices);
-        } else {
-            self.rebuild_filtered_list();
-        }
+        // rebuild filtered list using FilterEngine
+        self.rebuild_filtered_list();
 
         if previous_uuid.is_some() {
             self.update_selection_by_uuid();
@@ -367,22 +364,14 @@ impl App {
     }
 
     fn rebuild_filtered_list(&mut self) {
-        let filter_query = self.get_filter_query();
-        if filter_query.is_empty() {
-            // no filter: show all items by creating indices [0, 1, 2, ..., n-1]
-            let all_indices: Vec<usize> = (0..self.raw_logs.len()).collect();
-            self.displaying_logs = LogList::new(all_indices);
-        } else {
-            // filter: collect indices of matching items
-            let filtered_indices: Vec<usize> = self
-                .raw_logs
-                .iter()
-                .enumerate()
-                .filter(|(_, item)| item.contains(filter_query, self.detail_level))
-                .map(|(idx, _)| idx)
-                .collect();
-            self.displaying_logs = LogList::new(filtered_indices);
-        }
+        let filter_query = self.get_filter_query().to_string();
+
+        // use FilterEngine for filtering (incremental + parallel)
+        let filtered_indices =
+            self.filter_engine
+                .filter(&self.raw_logs, &filter_query, self.detail_level);
+
+        self.displaying_logs = LogList::new(filtered_indices);
     }
 
     fn update_logs_scrollbar_state(&mut self) {
@@ -1442,11 +1431,17 @@ impl App {
             KeyCode::Char('[') => {
                 // decrease detail level (show less info) - non-circular
                 self.detail_level = self.detail_level.decrement();
+                // reset filter cache since preview text changes
+                self.filter_engine.reset();
+                self.rebuild_filtered_list();
                 Ok(())
             }
             KeyCode::Char(']') => {
                 // increase detail level (show more info) - non-circular
                 self.detail_level = self.detail_level.increment();
+                // reset filter cache since preview text changes
+                self.filter_engine.reset();
+                self.rebuild_filtered_list();
                 Ok(())
             }
             KeyCode::Char('y') => {
