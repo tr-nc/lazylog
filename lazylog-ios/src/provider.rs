@@ -2,49 +2,53 @@ use anyhow::Result;
 use lazylog_framework::provider::{LogItem, LogProvider};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::{Child, Command};
 use tokio::runtime::Runtime;
 
 use crate::decoder::decode_syslog;
 
 /// log provider for iOS device logs (syslog relay)
 pub struct IosLogProvider {
-    runtime: Option<Runtime>,
     log_buffer: Arc<Mutex<Vec<String>>>,
     should_stop: Arc<Mutex<bool>>,
     thread_handle: Option<thread::JoinHandle<()>>,
+    child_process: Option<Arc<Mutex<Option<Child>>>>,
 }
 
 impl IosLogProvider {
     pub fn new() -> Self {
         Self {
-            runtime: None,
             log_buffer: Arc::new(Mutex::new(Vec::new())),
             should_stop: Arc::new(Mutex::new(false)),
             thread_handle: None,
+            child_process: None,
         }
     }
 
     fn parse_ios_log(raw_log: &str) -> LogItem {
         // iOS log format: "Oct 27 16:10:13 deviceName processName[pid] <Level>: content"
-        let parts: Vec<&str> = raw_log.splitn(6, ' ').collect();
+        // or: "Oct 28 19:24:46 backboardd[CoreBrightness](68) <Notice>: content"
+        let parts: Vec<&str> = raw_log.splitn(5, ' ').collect();
 
-        if parts.len() < 6 {
+        if parts.len() < 5 {
             // malformed log, return as-is
             return LogItem::new(raw_log.to_string(), raw_log.to_string());
         }
 
-        // process name (strip [pid] or (subsystem) if present)
-        let tag = parts[4]
+        // extract tag: the 4th item (index 3), process it to only leave the name before [ or (
+        let tag = parts[3]
             .split('[')
             .next()
             .and_then(|s| s.split('(').next())
-            .unwrap_or(parts[4])
+            .unwrap_or(parts[3])
             .to_string();
 
-        // level and content
-        let level_and_content = parts[5];
+        // level and content from the 5th item onwards
+        let level_and_content = parts[4];
         let (level, content) = if let Some(start) = level_and_content.find('<') {
             if let Some(end) = level_and_content.find(">:") {
+                // extract level without angle brackets
                 let level = &level_and_content[start + 1..end];
                 let content = &level_and_content[end + 2..];
                 (level.to_string(), content.trim().to_string())
@@ -76,14 +80,12 @@ impl LogProvider for IosLogProvider {
     fn start(&mut self) -> Result<()> {
         log::debug!("IosLogProvider: Starting");
 
-        // create a tokio runtime for async operations
-        let runtime = Runtime::new()?;
-        self.runtime = Some(runtime);
-
         let log_buffer = self.log_buffer.clone();
         let should_stop = self.should_stop.clone();
+        let child_process = Arc::new(Mutex::new(None));
+        self.child_process = Some(child_process.clone());
 
-        // spawn a thread to run the async syslog reader
+        // spawn a thread to run the command-line tool
         let handle = thread::spawn(move || {
             // we need a tokio runtime in this thread
             let rt = match Runtime::new() {
@@ -95,7 +97,7 @@ impl LogProvider for IosLogProvider {
             };
 
             rt.block_on(async {
-                match Self::run_syslog_relay(log_buffer, should_stop).await {
+                match Self::run_syslog_relay(log_buffer, should_stop, child_process).await {
                     Ok(_) => log::debug!("Syslog relay stopped normally"),
                     Err(e) => log::error!("Syslog relay error: {}", e),
                 }
@@ -113,6 +115,15 @@ impl LogProvider for IosLogProvider {
         // signal the thread to stop
         if let Ok(mut stop) = self.should_stop.lock() {
             *stop = true;
+        }
+
+        // kill the child process
+        if let Some(child_mutex) = &self.child_process {
+            if let Ok(mut child_opt) = child_mutex.lock() {
+                if let Some(child) = child_opt.as_mut() {
+                    let _ = child.start_kill();
+                }
+            }
         }
 
         // wait for thread to finish
@@ -141,69 +152,75 @@ impl LogProvider for IosLogProvider {
     }
 }
 
-// async helper function to connect to iOS device and stream logs
+// async helper function to spawn idevicesyslog command and stream logs
 impl IosLogProvider {
     async fn run_syslog_relay(
         log_buffer: Arc<Mutex<Vec<String>>>,
         should_stop: Arc<Mutex<bool>>,
+        child_process: Arc<Mutex<Option<Child>>>,
     ) -> Result<()> {
-        use idevice::{
-            IdeviceService,
-            syslog_relay::SyslogRelayClient,
-            usbmuxd::{UsbmuxdAddr, UsbmuxdConnection},
-        };
+        log::debug!("Spawning idevicesyslog command...");
 
-        log::debug!("Connecting to usbmuxd...");
+        // spawn idevicesyslog command
+        let mut child = Command::new("idevicesyslog")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()?;
 
-        let addr = UsbmuxdAddr::default();
-        let mut conn = UsbmuxdConnection::default().await?;
+        let stdout = child.stdout.take().expect("Failed to get stdout");
+        let mut reader = BufReader::new(stdout).lines();
 
-        // get all connected iOS devices
-        let devices = conn.get_devices().await?;
-
-        if devices.is_empty() {
-            log::error!("No iOS devices found");
-            return Err(anyhow::anyhow!("No iOS devices connected"));
+        // store the child process handle
+        if let Ok(mut child_opt) = child_process.lock() {
+            *child_opt = Some(child);
         }
-
-        // use the first device
-        let device = &devices[0];
-        log::debug!("Connected to device: {}", device.udid);
-
-        // create provider for the device
-        let provider = device.to_provider(addr, "lazylog-ios");
-
-        // connect to syslog relay service
-        let mut syslog = SyslogRelayClient::connect(&provider).await?;
 
         log::debug!("Syslog relay connected, streaming logs...");
 
         // stream logs continuously
         loop {
             // check if we should stop
-            if let Ok(stop) = should_stop.lock()
-                && *stop
-            {
-                log::debug!("Stop signal received, exiting syslog relay");
-                break;
+            if let Ok(stop) = should_stop.lock() {
+                if *stop {
+                    log::debug!("Stop signal received, exiting syslog relay");
+                    break;
+                }
             }
 
-            match syslog.next().await {
-                Ok(log_line) => {
+            // read next line with a timeout approach
+            match tokio::time::timeout(std::time::Duration::from_millis(100), reader.next_line())
+                .await
+            {
+                Ok(Ok(Some(log_line))) => {
                     // decode the vis-encoded syslog line first
                     // the trim_matches is to remove the null byte at the beginning, not sure why it's there
-                    let decoded_log = decode_syslog(&log_line)
-                        .trim_matches(|c| c == '\0')
-                        .to_string();
+                    let decoded_log = decode_syslog(&log_line);
+
                     // push to buffer
                     if let Ok(mut buffer) = log_buffer.lock() {
                         buffer.push(decoded_log);
                     }
                 }
-                Err(e) => {
+                Ok(Ok(None)) => {
+                    log::debug!("idevicesyslog stream ended");
+                    break;
+                }
+                Ok(Err(e)) => {
                     log::error!("Error reading log: {}", e);
                     break;
                 }
+                Err(_) => {
+                    // timeout - just continue to check should_stop
+                    continue;
+                }
+            }
+        }
+
+        // clean up the child process
+        if let Ok(mut child_opt) = child_process.lock() {
+            if let Some(mut child) = child_opt.take() {
+                let _ = child.kill().await;
+                let _ = child.wait().await;
             }
         }
 

@@ -12,6 +12,5 @@ lazylog-framework = { path = "../lazylog-framework" }
 anyhow.workspace = true
 log.workspace = true
 
-# iOS-specific dependencies
+# async runtime for spawning command-line tools
 tokio = { version = "1", features = ["full"] }
-idevice = { version = "0.1", features = ["usbmuxd", "syslog_relay", "pair"] }
