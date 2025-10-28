@@ -11,6 +11,48 @@ use ratatui::{
     widgets::{Paragraph, StatefulWidget, Widget},
 };
 
+/// helper function to highlight filter matches in text
+/// splits text into spans, applying bold & underlined style to matching parts
+fn create_highlighted_line(text: &str, filter_query: &str, base_style: Style) -> Line<'static> {
+    if filter_query.is_empty() {
+        return Line::styled(text.to_string(), base_style);
+    }
+
+    let text_lower = text.to_lowercase();
+    let query_lower = filter_query.to_lowercase();
+    let mut spans = Vec::new();
+    let mut last_pos = 0;
+
+    // find all occurrences of the filter query
+    while let Some(match_pos) = text_lower[last_pos..].find(&query_lower) {
+        let absolute_pos = last_pos + match_pos;
+
+        // add non-matching part before the match
+        if last_pos < absolute_pos {
+            spans.push(Span::styled(
+                text[last_pos..absolute_pos].to_string(),
+                base_style,
+            ));
+        }
+
+        // add matching part with bold & underlined
+        let match_end = absolute_pos + filter_query.len();
+        spans.push(Span::styled(
+            text[absolute_pos..match_end].to_string(),
+            base_style.add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+        ));
+
+        last_pos = match_end;
+    }
+
+    // add remaining text after last match
+    if last_pos < text.len() {
+        spans.push(Span::styled(text[last_pos..].to_string(), base_style));
+    }
+
+    Line::from(spans)
+}
+
 impl App {
     pub(super) fn render_footer(&self, area: Rect, buf: &mut Buffer) -> Result<()> {
         // determine middle text (help, filter, or display event)
@@ -265,7 +307,8 @@ impl App {
 
         let is_log_focused = self.is_log_block_focused().unwrap_or(false);
 
-        let filter_query = self.get_filter_query();
+        // clone filter_query early to avoid borrow checker issues
+        let filter_query = self.get_filter_query().to_string();
         let mut title = if filter_query.is_empty() {
             format!("[1]─Logs - {}", self.raw_logs.len())
         } else {
@@ -400,17 +443,31 @@ impl App {
                 .next()
                 .unwrap_or_else(|| Line::from(""));
 
-            let padded_text = if is_selected {
-                format!(
-                    "{:<width$}",
-                    truncated_line.to_string(),
-                    width = content_width
-                )
+            let truncated_text = truncated_line.to_string();
+
+            // apply highlighting if filter is active
+            let final_line = if !filter_query.is_empty() {
+                let highlighted_line =
+                    create_highlighted_line(&truncated_text, &filter_query, final_style);
+
+                // add padding for selected items
+                if is_selected {
+                    let padded_text = format!("{:<width$}", truncated_text, width = content_width);
+                    // re-apply highlighting to padded text
+                    create_highlighted_line(&padded_text, &filter_query, final_style)
+                } else {
+                    highlighted_line
+                }
             } else {
-                truncated_line.to_string()
+                let padded_text = if is_selected {
+                    format!("{:<width$}", truncated_text, width = content_width)
+                } else {
+                    truncated_text
+                };
+                Line::styled(padded_text, final_style)
             };
 
-            content_lines.push(Line::styled(padded_text, final_style));
+            content_lines.push(final_line);
         }
 
         // Update horizontal scrollbar state
