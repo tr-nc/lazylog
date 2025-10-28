@@ -99,7 +99,6 @@ impl LogProvider for IosLogProvider {
             };
 
             rt.block_on(async {
-                // import idevice types inside the async block
                 match Self::run_syslog_relay(log_buffer, should_stop).await {
                     Ok(_) => log::debug!("Syslog relay stopped normally"),
                     Err(e) => log::error!("Syslog relay error: {}", e),
