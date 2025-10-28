@@ -308,6 +308,9 @@ impl App {
         log::debug!("Received {} new log items from provider", new_logs.len());
         self.raw_logs.extend(new_logs);
 
+        // reset filter cache since raw_logs indices have changed
+        self.filter_engine.reset();
+
         // rebuild filtered list using FilterEngine
         self.rebuild_filtered_list();
 
