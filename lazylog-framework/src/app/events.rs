@@ -1,5 +1,8 @@
 use super::{App, DISPLAY_EVENT_DURATION_MS};
-use crate::log_list::LogList;
+use crate::{
+    log_list::LogList,
+    provider::{decrement_detail_level, increment_detail_level},
+};
 use anyhow::Result;
 use arboard::Clipboard;
 use crossterm::event::{self, KeyCode, KeyEvent, KeyEventKind, MouseEvent, MouseEventKind};
@@ -74,7 +77,7 @@ impl App {
         let item = &self.raw_logs[raw_idx];
 
         let mut clipboard = Clipboard::new()?;
-        let yank_content = item.make_yank_content();
+        let yank_content = self.formatter.make_yank_content(item);
         clipboard.set_text(&yank_content)?;
 
         log::debug!("Copied {} chars to clipboard", yank_content.len());
@@ -208,7 +211,7 @@ impl App {
             }
             KeyCode::Char('[') => {
                 // decrease detail level (show less info) - non-circular
-                self.detail_level = self.detail_level.decrement();
+                self.detail_level = decrement_detail_level(self.detail_level);
                 // reset filter cache since preview text changes
                 self.filter_engine.reset();
                 self.rebuild_filtered_list();
@@ -216,7 +219,7 @@ impl App {
             }
             KeyCode::Char(']') => {
                 // increase detail level (show more info) - non-circular
-                self.detail_level = self.detail_level.increment();
+                self.detail_level = increment_detail_level(self.detail_level);
                 // reset filter cache since preview text changes
                 self.filter_engine.reset();
                 self.rebuild_filtered_list();

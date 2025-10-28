@@ -83,13 +83,7 @@ mod special_events {
                 .into_iter()
                 .map(|span| MatchedEvent {
                     span,
-                    item: LogItem::new(
-                        String::new(),
-                        String::new(),
-                        String::new(),
-                        "DYEH PAUSED".to_string(),
-                        "DYEH PAUSED".to_string(),
-                    ),
+                    item: LogItem::new("DYEH PAUSED".to_string(), "DYEH PAUSED".to_string()),
                 })
                 .collect()
         }
@@ -134,13 +128,7 @@ mod special_events {
                 .into_iter()
                 .map(|span| MatchedEvent {
                     span,
-                    item: LogItem::new(
-                        String::new(),
-                        String::new(),
-                        String::new(),
-                        "DYEH RESUMED".to_string(),
-                        "DYEH RESUMED".to_string(),
-                    ),
+                    item: LogItem::new("DYEH RESUMED".to_string(), "DYEH RESUMED".to_string()),
                 })
                 .collect()
         }
@@ -190,13 +178,7 @@ fn split_header(line: &str) -> (String, String, String, String) {
 fn parse_structured(block: &str) -> Option<LogItem> {
     ITEM_PARSE_RE.captures(block).map(|caps| {
         let raw_content = caps.get(2).map_or("", |m| m.as_str()).trim().to_string();
-        LogItem::new(
-            String::new(),
-            String::new(),
-            String::new(),
-            raw_content.clone(),
-            raw_content,
-        )
+        LogItem::new(raw_content.clone(), raw_content)
     })
 }
 
@@ -227,8 +209,20 @@ pub fn process_delta(delta: &str) -> Vec<LogItem> {
             if let [s, e] = *win
                 && let Some(it) = parse_structured(&body[s..e])
             {
-                let (o, l, t, msg) = split_header(&it.content);
-                let updated_item = LogItem::new(l, o, t, msg, it.raw_content);
+                let (origin, level, tag, msg) = split_header(&it.content);
+                let mut updated_item = LogItem::new(msg, it.raw_content);
+
+                // add metadata if fields are not empty
+                if !level.is_empty() {
+                    updated_item = updated_item.with_metadata("level", level);
+                }
+                if !origin.is_empty() {
+                    updated_item = updated_item.with_metadata("origin", origin);
+                }
+                if !tag.is_empty() {
+                    updated_item = updated_item.with_metadata("tag", tag);
+                }
+
                 positioned.push((s, updated_item));
             }
         }

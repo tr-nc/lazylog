@@ -1,4 +1,5 @@
 use chrono::Local;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 /// represents a single log entry from any log source
@@ -6,85 +7,56 @@ use uuid::Uuid;
 pub struct LogItem {
     pub id: Uuid,
     pub time: String,
-    pub level: String,
-    pub origin: String,
-    pub tag: String,
     pub content: String,
     pub raw_content: String,
+    pub metadata: HashMap<String, String>,
 }
 
 impl LogItem {
-    pub fn new(
-        level: String,
-        origin: String,
-        tag: String,
-        content: String,
-        raw_content: String,
-    ) -> Self {
+    pub fn new(content: String, raw_content: String) -> Self {
         Self {
             id: Uuid::new_v4(),
             time: Local::now().format("%H:%M:%S%.3f").to_string(),
-            level,
-            origin,
-            tag,
             content,
             raw_content,
+            metadata: HashMap::new(),
         }
+    }
+
+    pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.metadata.insert(key.into(), value.into());
+        self
+    }
+
+    pub fn get_metadata(&self, key: &str) -> Option<&str> {
+        self.metadata.get(key).map(|s| s.as_str())
     }
 }
 
-/// detail level for log display
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LogDetailLevel {
-    ContentOnly,
-    Basic,
-    Medium,
-    Detailed,
-    Full,
-}
+/// detail level for log display (0-255, provider-specific interpretation)
+pub type LogDetailLevel = u8;
 
-impl LogDetailLevel {
-    pub fn select_forward(&self) -> Self {
-        match self {
-            LogDetailLevel::ContentOnly => LogDetailLevel::Basic,
-            LogDetailLevel::Basic => LogDetailLevel::Medium,
-            LogDetailLevel::Medium => LogDetailLevel::Detailed,
-            LogDetailLevel::Detailed => LogDetailLevel::Full,
-            LogDetailLevel::Full => *self,
-        }
-    }
+/// trait for formatting log items in a provider-specific way
+pub trait LogItemFormatter: Send + Sync {
+    /// format a log item for preview display based on detail level
+    /// detail_level: 0 = minimal, higher = more detailed
+    fn format_preview(&self, item: &LogItem, detail_level: LogDetailLevel) -> String;
 
-    pub fn select_backward(&self) -> Self {
-        match self {
-            LogDetailLevel::ContentOnly => *self,
-            LogDetailLevel::Basic => LogDetailLevel::ContentOnly,
-            LogDetailLevel::Medium => LogDetailLevel::Basic,
-            LogDetailLevel::Detailed => LogDetailLevel::Medium,
-            LogDetailLevel::Full => LogDetailLevel::Detailed,
-        }
+    /// get searchable text from log item based on detail level
+    /// used for filtering - should include all fields that should be searchable at this level
+    fn get_searchable_text(&self, item: &LogItem, detail_level: LogDetailLevel) -> String;
+
+    /// get text to yank/copy to clipboard
+    fn make_yank_content(&self, item: &LogItem) -> String {
+        item.raw_content.clone()
     }
 }
 
-impl From<u8> for LogDetailLevel {
-    fn from(value: u8) -> Self {
-        match value {
-            0 => LogDetailLevel::ContentOnly,
-            1 => LogDetailLevel::Basic,
-            2 => LogDetailLevel::Medium,
-            3 => LogDetailLevel::Detailed,
-            _ => LogDetailLevel::Full,
-        }
-    }
+/// helper functions for detail level navigation
+pub fn increment_detail_level(level: LogDetailLevel) -> LogDetailLevel {
+    level.saturating_add(1)
 }
 
-impl From<LogDetailLevel> for u8 {
-    fn from(value: LogDetailLevel) -> Self {
-        match value {
-            LogDetailLevel::ContentOnly => 0,
-            LogDetailLevel::Basic => 1,
-            LogDetailLevel::Medium => 2,
-            LogDetailLevel::Detailed => 3,
-            LogDetailLevel::Full => 4,
-        }
-    }
+pub fn decrement_detail_level(level: LogDetailLevel) -> LogDetailLevel {
+    level.saturating_sub(1)
 }

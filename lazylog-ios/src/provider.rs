@@ -28,13 +28,7 @@ impl IosLogProvider {
 
         if parts.len() < 6 {
             // malformed log, return as-is
-            return LogItem::new(
-                String::new(),
-                String::new(),
-                String::new(),
-                raw_log.to_string(),
-                raw_log.to_string(),
-            );
+            return LogItem::new(raw_log.to_string(), raw_log.to_string());
         }
 
         // device name
@@ -62,7 +56,17 @@ impl IosLogProvider {
             (String::new(), level_and_content.to_string())
         };
 
-        LogItem::new(level, origin, tag, content, raw_log.to_string())
+        let mut item = LogItem::new(content, raw_log.to_string());
+        if !level.is_empty() {
+            item = item.with_metadata("level", level);
+        }
+        if !origin.is_empty() {
+            item = item.with_metadata("origin", origin);
+        }
+        if !tag.is_empty() {
+            item = item.with_metadata("tag", tag);
+        }
+        item
     }
 }
 

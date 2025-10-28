@@ -1,7 +1,7 @@
 use crossterm::event;
-use lazylog_dyeh::DyehLogProvider;
+use lazylog_dyeh::{DyehLogFormatter, DyehLogProvider};
 use lazylog_framework::start_with_provider;
-use lazylog_ios::IosLogProvider;
+use lazylog_ios::{IosLogFormatter, IosLogProvider};
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
@@ -14,6 +14,7 @@ use ratatui::{
 use std::env;
 use std::io;
 use std::panic;
+use std::sync::Arc;
 use std::time::Duration;
 
 fn print_usage() {
@@ -49,7 +50,8 @@ fn main() -> io::Result<()> {
     let app_result = if use_ios {
         // iOS provider
         let provider = IosLogProvider::new();
-        start_with_provider(&mut terminal, provider)
+        let formatter = Arc::new(IosLogFormatter::new());
+        start_with_provider(&mut terminal, provider, formatter)
     } else {
         // DYEH provider (default)
         let log_dir_path = match dirs::home_dir() {
@@ -62,7 +64,8 @@ fn main() -> io::Result<()> {
         };
 
         let provider = DyehLogProvider::new(log_dir_path);
-        start_with_provider(&mut terminal, provider)
+        let formatter = Arc::new(DyehLogFormatter::new());
+        start_with_provider(&mut terminal, provider, formatter)
     };
 
     restore_terminal()?;

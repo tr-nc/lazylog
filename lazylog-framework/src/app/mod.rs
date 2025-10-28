@@ -3,7 +3,7 @@ use crate::{
     filter::FilterEngine,
     log_list::LogList,
     log_parser::{LogDetailLevel, LogItem},
-    provider::{LogProvider, spawn_provider_thread},
+    provider::{LogItemFormatter, LogProvider, spawn_provider_thread},
     status_bar::DisplayEvent,
     theme,
     ui_logger::UiLogger,
@@ -43,14 +43,16 @@ pub struct AppDesc {
     pub poll_interval: Duration,
     pub show_debug_logs: bool,
     pub ring_buffer_size: usize,
+    pub formatter: Arc<dyn LogItemFormatter>,
 }
 
-impl Default for AppDesc {
-    fn default() -> Self {
+impl AppDesc {
+    pub fn new(formatter: Arc<dyn LogItemFormatter>) -> Self {
         Self {
             poll_interval: Duration::from_millis(DEFAULT_POLL_INTERVAL_MS),
             show_debug_logs: false,
             ring_buffer_size: DEFAULT_RING_BUFFER_SIZE,
+            formatter,
         }
     }
 }
@@ -59,11 +61,12 @@ impl Default for AppDesc {
 pub fn start_with_provider<P>(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     provider: P,
+    formatter: Arc<dyn LogItemFormatter>,
 ) -> Result<()>
 where
     P: LogProvider + 'static,
 {
-    start_with_desc(terminal, provider, AppDesc::default())
+    start_with_desc(terminal, provider, AppDesc::new(formatter))
 }
 
 /// Start the application with custom configuration
@@ -93,6 +96,7 @@ struct App {
     filter_focused: bool, // Whether the filter input is focused
     filter_engine: FilterEngine, // Filtering engine with incremental + parallel support
     detail_level: LogDetailLevel, // Detail level for log display
+    formatter: Arc<dyn LogItemFormatter>, // Formatter for log items
     debug_logs: Arc<Mutex<Vec<String>>>, // Debug log messages for UI display
     hard_focused_block_id: uuid::Uuid, // Hard focus: set by clicking, persists until another click (defaults to logs_block)
     soft_focused_block_id: Option<uuid::Uuid>, // Soft focus: set by hovering, changes with mouse movement
@@ -160,6 +164,10 @@ impl App {
 
         let logs_block_id = logs_block.id();
 
+        // setup filter engine with formatter
+        let mut filter_engine = FilterEngine::new();
+        filter_engine.set_formatter(desc.formatter.clone());
+
         Self {
             is_exiting: false,
             raw_logs: Vec::new(),
@@ -170,8 +178,9 @@ impl App {
             autoscroll: true,
             filter_input: String::new(),
             filter_focused: false,
-            filter_engine: FilterEngine::new(),
-            detail_level: LogDetailLevel::default(),
+            filter_engine,
+            detail_level: 1, // default detail level (was Basic)
+            formatter: desc.formatter,
             debug_logs,
             hard_focused_block_id: logs_block_id,
             soft_focused_block_id: None,

@@ -1,5 +1,6 @@
-use crate::provider::{LogDetailLevel, LogItem};
+use crate::provider::{LogDetailLevel, LogItem, LogItemFormatter};
 use rayon::prelude::*;
+use std::sync::Arc;
 
 /// filtering engine with incremental filtering and parallel processing
 pub struct FilterEngine {
@@ -7,6 +8,8 @@ pub struct FilterEngine {
     previous_query: String,
     /// cached results from previous filter
     previous_results: Vec<usize>,
+    /// formatter for converting log items to searchable text
+    formatter: Option<Arc<dyn LogItemFormatter>>,
 }
 
 impl FilterEngine {
@@ -15,7 +18,13 @@ impl FilterEngine {
         Self {
             previous_query: String::new(),
             previous_results: Vec::new(),
+            formatter: None,
         }
+    }
+
+    /// set the formatter to use for filtering
+    pub fn set_formatter(&mut self, formatter: Arc<dyn LogItemFormatter>) {
+        self.formatter = Some(formatter);
     }
 
     /// filter logs and return indices of matching items
@@ -33,6 +42,11 @@ impl FilterEngine {
             self.reset();
             return (0..raw_logs.len()).collect();
         }
+
+        // if no formatter is set, return all items
+        let Some(formatter) = &self.formatter else {
+            return (0..raw_logs.len()).collect();
+        };
 
         // check if we can use incremental filtering
         let can_use_incremental = !self.previous_query.is_empty()
@@ -52,9 +66,21 @@ impl FilterEngine {
 
         // use parallel filtering for large search spaces
         let filtered_indices = if search_space.len() > 1000 {
-            self.filter_parallel(raw_logs, &search_space, &pattern_lower, detail_level)
+            self.filter_parallel(
+                raw_logs,
+                &search_space,
+                &pattern_lower,
+                detail_level,
+                formatter,
+            )
         } else {
-            self.filter_sequential(raw_logs, &search_space, &pattern_lower, detail_level)
+            self.filter_sequential(
+                raw_logs,
+                &search_space,
+                &pattern_lower,
+                detail_level,
+                formatter,
+            )
         };
 
         // cache for next filter
@@ -77,12 +103,14 @@ impl FilterEngine {
         search_space: &[usize],
         pattern_lower: &str,
         detail_level: LogDetailLevel,
+        formatter: &Arc<dyn LogItemFormatter>,
     ) -> Vec<usize> {
         search_space
             .iter()
             .filter(|&&idx| {
                 let item = &raw_logs[idx];
-                item.get_preview_text(detail_level)
+                formatter
+                    .get_searchable_text(item, detail_level)
                     .to_lowercase()
                     .contains(pattern_lower)
             })
@@ -97,12 +125,14 @@ impl FilterEngine {
         search_space: &[usize],
         pattern_lower: &str,
         detail_level: LogDetailLevel,
+        formatter: &Arc<dyn LogItemFormatter>,
     ) -> Vec<usize> {
         search_space
             .par_iter()
             .filter(|&&idx| {
                 let item = &raw_logs[idx];
-                item.get_preview_text(detail_level)
+                formatter
+                    .get_searchable_text(item, detail_level)
                     .to_lowercase()
                     .contains(pattern_lower)
             })

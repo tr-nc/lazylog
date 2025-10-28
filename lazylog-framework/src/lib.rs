@@ -7,7 +7,10 @@
 pub mod provider;
 
 // Re-export commonly used types
-pub use provider::{LogDetailLevel, LogItem, LogProvider, spawn_provider_thread};
+pub use provider::{
+    LogDetailLevel, LogItem, LogItemFormatter, LogProvider, decrement_detail_level,
+    increment_detail_level, spawn_provider_thread,
+};
 
 // Internal modules (not part of public API but needed for app)
 pub(crate) mod app;

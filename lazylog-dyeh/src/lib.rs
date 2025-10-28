@@ -3,9 +3,11 @@
 // This crate provides a LogProvider implementation for DYEH/DouyinAR logs.
 
 mod file_finder;
+mod formatter;
 mod parser;
 mod provider;
 
+pub use formatter::DyehLogFormatter;
 pub use provider::DyehLogProvider;
 
 // Also need to copy metadata module

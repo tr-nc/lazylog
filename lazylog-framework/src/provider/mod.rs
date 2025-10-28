@@ -1,6 +1,8 @@
 mod log_item;
 
-pub use log_item::{LogDetailLevel, LogItem};
+pub use log_item::{
+    LogDetailLevel, LogItem, LogItemFormatter, decrement_detail_level, increment_detail_level,
+};
 
 use anyhow::Result;
 use ringbuf::traits::Producer;
