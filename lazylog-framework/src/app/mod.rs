@@ -1,0 +1,562 @@
+use crate::{
+    app_block::AppBlock,
+    filter::FilterEngine,
+    log_list::LogList,
+    log_parser::{LogDetailLevel, LogItem},
+    provider::{LogProvider, spawn_provider_thread},
+    status_bar::DisplayEvent,
+    theme,
+    ui_logger::UiLogger,
+};
+use anyhow::{Result, anyhow};
+use crossterm::event::{self, Event, MouseEvent};
+use ratatui::{Terminal, backend::CrosstermBackend, prelude::*, widgets::Widget};
+use ringbuf::{
+    HeapRb,
+    traits::{Consumer, Split},
+};
+use std::{
+    io,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
+    time::Duration,
+};
+
+mod events;
+mod render;
+mod scrolling;
+mod selection;
+
+// constants
+const DEFAULT_POLL_INTERVAL_MS: u64 = 100;
+const DEFAULT_RING_BUFFER_SIZE: usize = 16384;
+const HELP_POPUP_WIDTH: u16 = 60;
+const SCROLL_PAD: usize = 1;
+const HORIZONTAL_SCROLL_STEP: usize = 5;
+const DISPLAY_EVENT_DURATION_MS: u64 = 800;
+
+#[derive(Clone)]
+pub struct AppDesc {
+    pub poll_interval: Duration,
+    pub show_debug_logs: bool,
+    pub ring_buffer_size: usize,
+}
+
+impl Default for AppDesc {
+    fn default() -> Self {
+        Self {
+            poll_interval: Duration::from_millis(DEFAULT_POLL_INTERVAL_MS),
+            show_debug_logs: false,
+            ring_buffer_size: DEFAULT_RING_BUFFER_SIZE,
+        }
+    }
+}
+
+/// Start the application with default configuration
+pub fn start_with_provider<P>(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    provider: P,
+) -> Result<()>
+where
+    P: LogProvider + 'static,
+{
+    start_with_desc(terminal, provider, AppDesc::default())
+}
+
+/// Start the application with custom configuration
+pub fn start_with_desc<P>(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    provider: P,
+    desc: AppDesc,
+) -> Result<()>
+where
+    P: LogProvider + 'static,
+{
+    color_eyre::install().or(Err(anyhow!("Error installing color_eyre")))?;
+
+    let app = App::new(provider, desc.clone());
+    app.run(terminal, &desc)
+}
+
+struct App {
+    is_exiting: bool,
+    raw_logs: Vec<LogItem>,
+    displaying_logs: LogList,
+    log_consumer: ringbuf::HeapCons<LogItem>, // receives logs from provider thread
+    provider_thread: Option<thread::JoinHandle<()>>,
+    provider_stop_signal: Arc<AtomicBool>,
+    autoscroll: bool,
+    filter_input: String, // Current filter input text (includes leading '/')
+    filter_focused: bool, // Whether the filter input is focused
+    filter_engine: FilterEngine, // Filtering engine with incremental + parallel support
+    detail_level: LogDetailLevel, // Detail level for log display
+    debug_logs: Arc<Mutex<Vec<String>>>, // Debug log messages for UI display
+    hard_focused_block_id: uuid::Uuid, // Hard focus: set by clicking, persists until another click (defaults to logs_block)
+    soft_focused_block_id: Option<uuid::Uuid>, // Soft focus: set by hovering, changes with mouse movement
+    logs_block: AppBlock,
+    details_block: AppBlock,
+    debug_block: AppBlock,
+    prev_selected_log_id: Option<uuid::Uuid>, // Track previous selected log item ID for details reset
+    selected_log_uuid: Option<uuid::Uuid>,    // Track currently selected log item UUID
+    last_logs_area: Option<Rect>, // Store the last rendered logs area for selection visibility
+    last_details_area: Option<Rect>, // Store the last rendered details area
+    last_debug_area: Option<Rect>, // Store the last rendered debug area
+    text_wrapping_enabled: bool,  // Whether text wrapping is enabled (default false)
+    show_debug_logs: bool,        // Whether to show the debug logs block
+    show_help_popup: bool,        // Whether to show the help popup
+    display_event: Option<DisplayEvent>, // Temporary event to display in footer
+    prev_hard_focused_block_id: uuid::Uuid, // Track previous hard focus to detect changes
+
+    mouse_event: Option<MouseEvent>,
+}
+
+#[derive(Copy, Clone)]
+pub(super) enum ScrollableBlockType {
+    Details,
+    Debug,
+}
+
+// ============================================================================
+// Initialization
+// ============================================================================
+impl App {
+    fn setup_logger() -> Arc<Mutex<Vec<String>>> {
+        let debug_logs = Arc::new(Mutex::new(Vec::new()));
+        let logger = Box::new(UiLogger::new(debug_logs.clone()));
+
+        if log::set_logger(Box::leak(logger)).is_ok() {
+            log::set_max_level(log::LevelFilter::Debug);
+        }
+
+        debug_logs
+    }
+
+    fn new<P>(provider: P, desc: AppDesc) -> Self
+    where
+        P: LogProvider + 'static,
+    {
+        let debug_logs = Self::setup_logger();
+
+        // create ring buffer
+        let ring_buffer = HeapRb::<LogItem>::new(desc.ring_buffer_size);
+        let (producer, consumer) = ring_buffer.split();
+
+        // spawn provider thread
+        let poll_interval = desc.poll_interval;
+        let (provider_thread, provider_stop_signal) =
+            spawn_provider_thread(provider, producer, poll_interval);
+
+        // create blocks first so we can reference their IDs
+        let logs_block = AppBlock::new().set_title("[1]─Logs".to_string());
+        let details_block = AppBlock::new()
+            .set_title("[2]─Details")
+            .set_padding(ratatui::widgets::Padding::horizontal(1));
+        let debug_block = AppBlock::new()
+            .set_title("[3]─Debug Logs")
+            .set_padding(ratatui::widgets::Padding::horizontal(1));
+
+        let logs_block_id = logs_block.id();
+
+        Self {
+            is_exiting: false,
+            raw_logs: Vec::new(),
+            displaying_logs: LogList::new(Vec::new()),
+            log_consumer: consumer,
+            provider_thread: Some(provider_thread),
+            provider_stop_signal,
+            autoscroll: true,
+            filter_input: String::new(),
+            filter_focused: false,
+            filter_engine: FilterEngine::new(),
+            detail_level: LogDetailLevel::default(),
+            debug_logs,
+            hard_focused_block_id: logs_block_id,
+            soft_focused_block_id: None,
+            logs_block,
+            details_block,
+            debug_block,
+            prev_selected_log_id: None,
+            selected_log_uuid: None,
+            last_logs_area: None,
+            last_details_area: None,
+            last_debug_area: None,
+            text_wrapping_enabled: true,
+            show_debug_logs: desc.show_debug_logs,
+            show_help_popup: false,
+            display_event: None,
+            prev_hard_focused_block_id: logs_block_id,
+
+            mouse_event: None,
+        }
+    }
+}
+
+// ============================================================================
+// Lifecycle
+// ============================================================================
+impl App {
+    fn run(
+        mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        desc: &AppDesc,
+    ) -> Result<()> {
+        let poll_interval = desc.poll_interval;
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<()> {
+            while !self.is_exiting {
+                self.poll_event(poll_interval)?;
+                self.update_logs()?;
+                self.check_and_clear_expired_event();
+                terminal.draw(|frame| frame.render_widget(&mut self, frame.area()))?;
+            }
+            Ok(())
+        }));
+
+        // cleanup provider thread before returning
+        self.cleanup();
+
+        match result {
+            Ok(r) => r,
+            Err(_) => {
+                eprintln!("Application panicked, terminal restored");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    fn cleanup(&mut self) {
+        // signal provider thread to stop
+        self.provider_stop_signal.store(true, Ordering::Relaxed);
+
+        // join the provider thread
+        if let Some(handle) = self.provider_thread.take() {
+            log::debug!("Waiting for provider thread to finish...");
+            if let Err(e) = handle.join() {
+                log::error!("Provider thread panicked: {:?}", e);
+            }
+        }
+    }
+
+    fn poll_event(&mut self, poll_interval: Duration) -> Result<()> {
+        if event::poll(poll_interval)? {
+            let event = event::read()?;
+            match event {
+                Event::Key(key) => self.handle_key(key)?,
+                Event::Mouse(mouse) => {
+                    self.handle_mouse_event(&mouse)?;
+                    self.mouse_event = Some(mouse);
+                }
+                Event::Resize(width, height) => {
+                    log::debug!("Terminal resized to {}x{}", width, height);
+                }
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+}
+
+// ============================================================================
+// Utility methods
+// ============================================================================
+impl App {
+    fn to_underlying_index(total: usize, visual_index: usize) -> usize {
+        total.saturating_sub(1).saturating_sub(visual_index)
+    }
+
+    fn to_visual_index(total: usize, underlying_index: usize) -> usize {
+        total.saturating_sub(1).saturating_sub(underlying_index)
+    }
+
+    fn is_log_block_focused(&self) -> Result<bool> {
+        Ok(self.get_display_focused_block() == self.logs_block.id())
+    }
+}
+
+// ============================================================================
+// Log and filter management
+// ============================================================================
+impl App {
+    fn update_logs(&mut self) -> Result<()> {
+        // consume all available logs from ring buffer
+        let mut new_logs = Vec::new();
+        while let Some(log) = self.log_consumer.try_pop() {
+            new_logs.push(log);
+        }
+
+        if new_logs.is_empty() {
+            return Ok(());
+        }
+
+        let old_items_count = self.displaying_logs.len();
+        let previous_uuid = self.selected_log_uuid;
+        let previous_scroll_pos = Some(self.logs_block.get_scroll_position());
+
+        log::debug!("Received {} new log items from provider", new_logs.len());
+        self.raw_logs.extend(new_logs);
+
+        // rebuild filtered list using FilterEngine
+        self.rebuild_filtered_list();
+
+        if previous_uuid.is_some() {
+            self.update_selection_by_uuid();
+        } else if self.autoscroll {
+            self.displaying_logs.select_first();
+            self.update_selected_uuid();
+        }
+
+        {
+            let new_items_count = self.displaying_logs.len();
+            let items_added = new_items_count.saturating_sub(old_items_count);
+
+            if self.autoscroll {
+                self.logs_block.set_scroll_position(0);
+            } else if let Some(prev) = previous_scroll_pos {
+                // newest is at visual index 0, adding items pushes existing content down;
+                // keep the same lines visible by shifting the top by items_added
+                let new_scroll_pos = prev.saturating_add(items_added);
+                let max_top = new_items_count.saturating_sub(1);
+                self.logs_block
+                    .set_scroll_position(new_scroll_pos.min(max_top));
+            }
+
+            self.logs_block.set_lines_count(new_items_count);
+            self.logs_block.update_scrollbar_state(
+                new_items_count,
+                Some(self.logs_block.get_scroll_position()),
+            );
+        }
+
+        Ok(())
+    }
+
+    fn get_filter_query(&self) -> &str {
+        // filter_input includes the leading '/', so skip it
+        if self.filter_input.starts_with('/') && self.filter_input.len() > 1 {
+            &self.filter_input[1..]
+        } else {
+            ""
+        }
+    }
+
+    fn apply_filter(&mut self) {
+        let previous_uuid = self.selected_log_uuid;
+        let prev_scroll_pos = self.logs_block.get_scroll_position();
+
+        // calculate the relative position of the selected item in the viewport
+        let prev_relative_offset = if let Some(selected_idx) = self.displaying_logs.state.selected()
+        {
+            selected_idx.saturating_sub(prev_scroll_pos)
+        } else {
+            0
+        };
+
+        self.rebuild_filtered_list();
+
+        if previous_uuid.is_some() {
+            self.update_selection_by_uuid();
+
+            // if the previously selected item is no longer in the filtered list,
+            // select the first available item
+            if self.selected_log_uuid.is_none() && !self.displaying_logs.is_empty() {
+                self.displaying_logs.select_first();
+                self.update_selected_uuid();
+            }
+        } else if self.autoscroll {
+            self.displaying_logs.select_first();
+            self.update_selected_uuid();
+        }
+
+        {
+            let new_total = self.displaying_logs.len();
+            let mut pos = prev_scroll_pos;
+            if new_total == 0 {
+                pos = 0;
+            } else {
+                // try to preserve the relative screen position of the selected item
+                if let Some(selected_idx) = self.displaying_logs.state.selected() {
+                    // calculate desired scroll position to maintain relative offset
+                    let desired_scroll = selected_idx.saturating_sub(prev_relative_offset);
+                    // clamp to valid range
+                    pos = desired_scroll.min(new_total.saturating_sub(1));
+                } else {
+                    // fallback to previous scroll position
+                    pos = pos.min(new_total.saturating_sub(1));
+                }
+            }
+            self.logs_block.set_scroll_position(pos);
+            self.logs_block.set_lines_count(new_total);
+            self.logs_block.update_scrollbar_state(new_total, Some(pos));
+        }
+
+        // ensure the selected item is scrolled into view after filter changes
+        let _ = self.ensure_selection_visible();
+    }
+
+    fn rebuild_filtered_list(&mut self) {
+        let filter_query = self.get_filter_query().to_string();
+
+        // use FilterEngine for filtering (incremental + parallel)
+        let filtered_indices =
+            self.filter_engine
+                .filter(&self.raw_logs, &filter_query, self.detail_level);
+
+        self.displaying_logs = LogList::new(filtered_indices);
+    }
+
+    fn update_logs_scrollbar_state(&mut self) {
+        let total = self.displaying_logs.len();
+
+        {
+            let max_top = total.saturating_sub(1);
+            let pos = self.logs_block.get_scroll_position().min(max_top);
+            self.logs_block.set_scroll_position(pos);
+
+            self.logs_block.set_lines_count(total);
+            self.logs_block.update_scrollbar_state(total, Some(pos));
+        }
+    }
+}
+
+// ============================================================================
+// Focus management
+// ============================================================================
+impl App {
+    fn set_hard_focused_block(&mut self, block_id: uuid::Uuid) {
+        self.hard_focused_block_id = block_id;
+    }
+
+    fn set_soft_focused_block(&mut self, block_id: uuid::Uuid) {
+        if self.soft_focused_block_id != Some(block_id) {
+            self.soft_focused_block_id = Some(block_id);
+        }
+    }
+
+    fn get_display_focused_block(&self) -> uuid::Uuid {
+        self.hard_focused_block_id
+    }
+
+    fn is_mouse_in_area(&self, mouse: &MouseEvent, area: Rect) -> bool {
+        mouse.column >= area.x
+            && mouse.column < area.x + area.width
+            && mouse.row >= area.y
+            && mouse.row < area.y + area.height
+    }
+
+    fn get_block_under_mouse(&self, mouse: &MouseEvent) -> Option<uuid::Uuid> {
+        if let Some(area) = self.last_logs_area
+            && self.is_mouse_in_area(mouse, area)
+        {
+            return Some(self.logs_block.id());
+        }
+
+        if let Some(area) = self.last_details_area
+            && self.is_mouse_in_area(mouse, area)
+        {
+            return Some(self.details_block.id());
+        }
+
+        if let Some(area) = self.last_debug_area
+            && self.is_mouse_in_area(mouse, area)
+        {
+            return Some(self.debug_block.id());
+        }
+
+        None
+    }
+}
+
+// ============================================================================
+// Display events
+// ============================================================================
+impl App {
+    /// Set a display event to show in the footer for a given duration
+    pub fn set_display_event(&mut self, text: String, duration: Duration, style: Option<Style>) {
+        self.display_event = Some(DisplayEvent::create(
+            text,
+            duration,
+            style,
+            theme::DISPLAY_EVENT_STYLE,
+        ));
+    }
+
+    /// Check if the current display event has expired and clear it if so
+    fn check_and_clear_expired_event(&mut self) {
+        self.display_event = DisplayEvent::check_and_clear(self.display_event.take());
+    }
+
+    fn clear_event(&mut self) {
+        self.mouse_event = None;
+    }
+}
+
+// ============================================================================
+// Widget implementation
+// ============================================================================
+impl Widget for &mut App {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        // detect if hard focus changed since last render
+        let focus_changed = self.hard_focused_block_id != self.prev_hard_focused_block_id;
+
+        // determine dynamic layout based on hard focus
+        let (logs_percentage, details_percentage) =
+            if self.hard_focused_block_id == self.logs_block.id() {
+                (60, 40)
+            } else if self.hard_focused_block_id == self.details_block.id() {
+                (40, 60)
+            } else {
+                (60, 40) // default for debug block or any other case
+            };
+
+        if self.show_debug_logs {
+            let [main, debug_area, footer_area] = Layout::vertical([
+                Constraint::Fill(1),
+                Constraint::Length(6),
+                Constraint::Length(1),
+            ])
+            .areas(area);
+
+            let [logs_area, details_area] = Layout::vertical([
+                Constraint::Percentage(logs_percentage),
+                Constraint::Percentage(details_percentage),
+            ])
+            .areas(main);
+
+            self.render_logs(logs_area, buf).unwrap();
+            self.render_details(details_area, buf).unwrap();
+            self.render_debug_logs(debug_area, buf).unwrap();
+            self.render_footer(footer_area, buf).unwrap();
+        } else {
+            let [main, footer_area] =
+                Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
+
+            let [logs_area, details_area] = Layout::vertical([
+                Constraint::Percentage(logs_percentage),
+                Constraint::Percentage(details_percentage),
+            ])
+            .areas(main);
+
+            self.render_logs(logs_area, buf).unwrap();
+            self.render_details(details_area, buf).unwrap();
+            self.render_footer(footer_area, buf).unwrap();
+        }
+
+        // render help popup on top if visible
+        if self.show_help_popup {
+            self.render_help_popup(area, buf).unwrap();
+        }
+
+        // adjust viewport if hard focus changed (panels resized)
+        if focus_changed {
+            log::debug!("Hard focus changed, adjusting viewport");
+            let _ = self.ensure_selection_visible();
+            self.prev_hard_focused_block_id = self.hard_focused_block_id;
+        }
+
+        self.clear_event();
+    }
+}
