@@ -35,7 +35,7 @@ impl IosLogProvider {
         let tag = parts[4]
             .split('[')
             .next()
-            .or_else(|| parts[4].split('(').next())
+            .and_then(|s| s.split('(').next())
             .unwrap_or(parts[4])
             .to_string();
 
