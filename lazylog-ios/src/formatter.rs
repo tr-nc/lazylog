@@ -94,4 +94,8 @@ impl LogItemFormatter for IosLogFormatter {
     fn make_yank_content(&self, item: &LogItem) -> String {
         item.raw_content.clone()
     }
+
+    fn max_detail_level(&self) -> LogDetailLevel {
+        4 // 5 levels: 0=content, 1=time, 2=time+level, 3=time+level+origin, 4=all
+    }
 }

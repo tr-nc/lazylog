@@ -219,7 +219,8 @@ impl App {
             }
             KeyCode::Char(']') => {
                 // increase detail level (show more info) - non-circular
-                self.detail_level = increment_detail_level(self.detail_level);
+                let max = self.formatter.max_detail_level();
+                self.detail_level = increment_detail_level(self.detail_level, max);
                 // reset filter cache since preview text changes
                 self.filter_engine.reset();
                 self.rebuild_filtered_list();

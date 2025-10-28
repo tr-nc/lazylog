@@ -50,11 +50,16 @@ pub trait LogItemFormatter: Send + Sync {
     fn make_yank_content(&self, item: &LogItem) -> String {
         item.raw_content.clone()
     }
+
+    /// get maximum detail level supported by this formatter
+    fn max_detail_level(&self) -> LogDetailLevel {
+        4 // default: 5 levels (0-4)
+    }
 }
 
 /// helper functions for detail level navigation
-pub fn increment_detail_level(level: LogDetailLevel) -> LogDetailLevel {
-    level.saturating_add(1)
+pub fn increment_detail_level(level: LogDetailLevel, max: LogDetailLevel) -> LogDetailLevel {
+    level.saturating_add(1).min(max)
 }
 
 pub fn decrement_detail_level(level: LogDetailLevel) -> LogDetailLevel {
