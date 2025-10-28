@@ -28,15 +28,9 @@ impl LogItemFormatter for IosLogFormatter {
 
         let time = &item.time;
         let level = item.get_metadata("level").unwrap_or("");
-        let origin = item.get_metadata("origin").unwrap_or("");
         let tag = item.get_metadata("tag").unwrap_or("");
 
-        let field_order = [
-            ("time", time.as_str()),
-            ("level", level),
-            ("origin", origin),
-            ("tag", tag),
-        ];
+        let field_order = [("time", time.as_str()), ("level", level), ("tag", tag)];
 
         match detail_level {
             0 => content, // content only
@@ -62,19 +56,8 @@ impl LogItemFormatter for IosLogFormatter {
                 parts.push(content);
                 parts.join(" ")
             }
-            3 => {
-                // time + level + origin
-                let mut parts = Vec::new();
-                for (_, field_value) in field_order.iter().take(3) {
-                    if !field_value.is_empty() {
-                        parts.push(format!("[{}]", field_value));
-                    }
-                }
-                parts.push(content);
-                parts.join(" ")
-            }
             _ => {
-                // all fields (time + level + origin + tag)
+                // all fields (time + level + tag)
                 let mut parts = Vec::new();
                 for (_, field_value) in field_order.iter() {
                     if !field_value.is_empty() {
@@ -96,6 +79,6 @@ impl LogItemFormatter for IosLogFormatter {
     }
 
     fn max_detail_level(&self) -> LogDetailLevel {
-        4 // 5 levels: 0=content, 1=time, 2=time+level, 3=time+level+origin, 4=all
+        3 // 4 levels: 0=content, 1=time, 2=time+level, 3=all
     }
 }

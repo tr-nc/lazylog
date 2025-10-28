@@ -31,9 +31,6 @@ impl IosLogProvider {
             return LogItem::new(raw_log.to_string(), raw_log.to_string());
         }
 
-        // device name
-        let origin = parts[3].to_string();
-
         // process name (strip [pid] or (subsystem) if present)
         let tag = parts[4]
             .split('[')
@@ -59,9 +56,6 @@ impl IosLogProvider {
         let mut item = LogItem::new(content, raw_log.to_string());
         if !level.is_empty() {
             item = item.with_metadata("level", level);
-        }
-        if !origin.is_empty() {
-            item = item.with_metadata("origin", origin);
         }
         if !tag.is_empty() {
             item = item.with_metadata("tag", tag);
