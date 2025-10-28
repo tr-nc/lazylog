@@ -215,6 +215,7 @@ impl App {
                 // reset filter cache since preview text changes
                 self.filter_engine.reset();
                 self.rebuild_filtered_list();
+                self.update_selection_by_uuid();
                 Ok(())
             }
             KeyCode::Char(']') => {
@@ -224,6 +225,7 @@ impl App {
                 // reset filter cache since preview text changes
                 self.filter_engine.reset();
                 self.rebuild_filtered_list();
+                self.update_selection_by_uuid();
                 Ok(())
             }
             KeyCode::Char('y') => {
