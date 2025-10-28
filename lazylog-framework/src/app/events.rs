@@ -216,6 +216,12 @@ impl App {
                 self.filter_engine.reset();
                 self.rebuild_filtered_list();
                 self.update_selection_by_uuid();
+                // notify user of detail level change
+                self.set_display_event(
+                    format!("Detail level: {}", self.detail_level),
+                    Duration::from_millis(DISPLAY_EVENT_DURATION_MS),
+                    None,
+                );
                 Ok(())
             }
             KeyCode::Char(']') => {
@@ -226,6 +232,12 @@ impl App {
                 self.filter_engine.reset();
                 self.rebuild_filtered_list();
                 self.update_selection_by_uuid();
+                // notify user of detail level change
+                self.set_display_event(
+                    format!("Detail level: {}", self.detail_level),
+                    Duration::from_millis(DISPLAY_EVENT_DURATION_MS),
+                    None,
+                );
                 Ok(())
             }
             KeyCode::Char('y') => {
