@@ -557,9 +557,7 @@ impl App {
 
                 Some((
                     item.time.clone(),
-                    item.get_metadata("level").unwrap_or("").to_string(),
-                    item.get_metadata("origin").unwrap_or("").to_string(),
-                    item.get_metadata("tag").unwrap_or("").to_string(),
+                    item.metadata.clone(),
                     item.content.clone(),
                 ))
             } else {
@@ -570,16 +568,39 @@ impl App {
         let text_wrapping_enabled = self.text_wrapping_enabled;
 
         // generate content using the cloned data
-        let (content, max_content_width) = if let Some((time, level, origin, tag, item_content)) =
+        let (content, max_content_width) = if let Some((time, metadata, item_content)) =
             &selected_item
         {
-            let mut content_lines = vec![
-                Line::from(vec!["Time:   ".bold(), time.clone().into()]),
-                Line::from(vec!["Level:  ".bold(), level.clone().into()]),
-                Line::from(vec!["Origin: ".bold(), origin.clone().into()]),
-                Line::from(vec!["Tag:    ".bold(), tag.clone().into()]),
-                Line::from("Content:".bold()),
-            ];
+            // start with time field
+            let mut content_lines = vec![Line::from(vec!["Time: ".bold(), time.clone().into()])];
+
+            // define preferred display order for common metadata fields
+            let preferred_order = ["level", "origin", "tag"];
+
+            // add metadata fields in preferred order if they exist
+            for key in &preferred_order {
+                if let Some(value) = metadata.get(*key) {
+                    let label = format!(
+                        "{}: ",
+                        key.chars().next().unwrap().to_uppercase().to_string() + &key[1..]
+                    );
+                    content_lines.push(Line::from(vec![label.bold(), value.clone().into()]));
+                }
+            }
+
+            // add any other metadata fields not in the preferred order
+            for (key, value) in metadata.iter() {
+                if !preferred_order.contains(&key.as_str()) {
+                    let label = format!(
+                        "{}: ",
+                        key.chars().next().unwrap().to_uppercase().to_string() + &key[1..]
+                    );
+                    content_lines.push(Line::from(vec![label.bold(), value.clone().into()]));
+                }
+            }
+
+            // add content field
+            content_lines.push(Line::from("Content:".bold()));
 
             // calculate temp_content_rect to determine wrapping width
             let [vertical_content_area, _] =
@@ -611,11 +632,23 @@ impl App {
             let max_content_width = if text_wrapping_enabled {
                 temp_content_rect.width as usize
             } else {
-                let header_width = ["Time:   ", "Level:  ", "Origin: ", "Tag:    ", "Content:"]
-                    .iter()
-                    .map(|h| h.len())
-                    .max()
-                    .unwrap_or(0);
+                // calculate header widths dynamically based on actual fields
+                let mut header_widths = vec!["Time: ".len()];
+                for key in &preferred_order {
+                    if metadata.contains_key(*key) {
+                        let label_len = key.len() + 2; // +2 for ": "
+                        header_widths.push(label_len);
+                    }
+                }
+                for key in metadata.keys() {
+                    if !preferred_order.contains(&key.as_str()) {
+                        let label_len = key.len() + 2; // +2 for ": "
+                        header_widths.push(label_len);
+                    }
+                }
+                header_widths.push("Content:".len());
+
+                let header_width = header_widths.iter().max().copied().unwrap_or(0);
                 let item_content_width = calculate_content_width(item_content);
                 header_width.max(item_content_width)
             };
