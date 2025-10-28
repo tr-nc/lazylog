@@ -12,9 +12,8 @@ pub const TEXT_FG_COLOR: Color = select_color_with_default_palette(PaletteIdx::C
 pub const LOG_HEADER_STYLE: Style = Style::new()
     .fg(select_color_with_default_palette(PaletteIdx::C100))
     .bg(select_color_with_default_palette(PaletteIdx::C400));
-pub const SELECTED_STYLE: Style = Style::new()
-    .bg(select_color_with_default_palette(PaletteIdx::C700))
-    .add_modifier(Modifier::BOLD);
+pub const SELECTED_STYLE: Style =
+    Style::new().bg(select_color_with_default_palette(PaletteIdx::C700));
 pub const INFO_STYLE: Style = Style::new().fg(select_color_from_palette(
     PaletteIdx::C100,
     palette::tailwind::ZINC,
