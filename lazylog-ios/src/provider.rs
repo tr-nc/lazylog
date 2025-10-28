@@ -4,6 +4,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use tokio::runtime::Runtime;
 
+use crate::decoder::decode_syslog;
+
 /// log provider for iOS device logs (syslog relay)
 pub struct IosLogProvider {
     runtime: Option<Runtime>,
@@ -188,9 +190,14 @@ impl IosLogProvider {
 
             match syslog.next().await {
                 Ok(log_line) => {
+                    // decode the vis-encoded syslog line first
+                    // the trim_matches is to remove the null byte at the beginning, not sure why it's there
+                    let decoded_log = decode_syslog(&log_line)
+                        .trim_matches(|c| c == '\0')
+                        .to_string();
                     // push to buffer
                     if let Ok(mut buffer) = log_buffer.lock() {
-                        buffer.push(log_line);
+                        buffer.push(decoded_log);
                     }
                 }
                 Err(e) => {
