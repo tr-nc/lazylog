@@ -96,6 +96,69 @@ impl FilterEngine {
         self.previous_results.clear();
     }
 
+    /// filter only newly added logs and append to existing results
+    ///
+    /// this is more efficient than re-filtering all logs when new items arrive
+    pub fn filter_new_logs(
+        &mut self,
+        raw_logs: &[LogItem],
+        old_count: usize,
+        query: &str,
+        detail_level: LogDetailLevel,
+    ) -> Vec<usize> {
+        // if query changed or no previous results, do full filter
+        if query != self.previous_query {
+            return self.filter(raw_logs, query, detail_level);
+        }
+
+        // if no new logs, return cached results
+        if old_count >= raw_logs.len() {
+            return self.previous_results.clone();
+        }
+
+        // empty query = show all (including new ones)
+        if query.is_empty() {
+            return (0..raw_logs.len()).collect();
+        }
+
+        // if no formatter is set, return all items
+        let Some(formatter) = &self.formatter else {
+            return (0..raw_logs.len()).collect();
+        };
+
+        // filter only the new logs
+        let new_indices: Vec<usize> = (old_count..raw_logs.len()).collect();
+        let pattern_lower = query.to_lowercase();
+
+        let new_filtered = if new_indices.len() > 1000 {
+            self.filter_parallel(
+                raw_logs,
+                &new_indices,
+                &pattern_lower,
+                detail_level,
+                formatter,
+            )
+        } else {
+            self.filter_sequential(
+                raw_logs,
+                &new_indices,
+                &pattern_lower,
+                detail_level,
+                formatter,
+            )
+        };
+
+        // append new filtered indices to existing results
+        let mut all_results = self.previous_results.clone();
+        all_results.extend(new_filtered);
+
+        // update cache
+        self.previous_results = all_results.clone();
+        // query stays the same, so previous_query doesn't need updating
+
+        all_results
+    }
+
     /// sequential filtering (for small search spaces)
     fn filter_sequential(
         &self,

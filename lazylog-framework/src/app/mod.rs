@@ -306,13 +306,18 @@ impl App {
         let previous_scroll_pos = Some(self.logs_block.get_scroll_position());
 
         log::debug!("Received {} new log items from provider", new_logs.len());
+        let old_raw_count = self.raw_logs.len();
         self.raw_logs.extend(new_logs);
 
-        // reset filter cache since raw_logs indices have changed
-        self.filter_engine.reset();
-
-        // rebuild filtered list using FilterEngine
-        self.rebuild_filtered_list();
+        // use incremental filtering for efficiency (only filters new logs)
+        let filter_query = self.get_filter_query().to_string();
+        let filtered_indices = self.filter_engine.filter_new_logs(
+            &self.raw_logs,
+            old_raw_count,
+            &filter_query,
+            self.detail_level,
+        );
+        self.displaying_logs = LogList::new(filtered_indices);
 
         if previous_uuid.is_some() {
             self.update_selection_by_uuid();
