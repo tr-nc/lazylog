@@ -41,7 +41,18 @@ impl LogItemFormatter for DyehLogFormatter {
         match detail_level {
             0 => content, // content only
             1 => {
-                // basic: time + level
+                // time only
+                let mut parts = Vec::new();
+                for (_, field_value) in field_order.iter().take(1) {
+                    if !field_value.is_empty() {
+                        parts.push(format!("[{}]", field_value));
+                    }
+                }
+                parts.push(content);
+                parts.join(" ")
+            }
+            2 => {
+                // time + level
                 let mut parts = Vec::new();
                 for (_, field_value) in field_order.iter().take(2) {
                     if !field_value.is_empty() {
@@ -51,8 +62,8 @@ impl LogItemFormatter for DyehLogFormatter {
                 parts.push(content);
                 parts.join(" ")
             }
-            2 => {
-                // medium: time + level + tag
+            3 => {
+                // time + level + tag
                 let mut parts = Vec::new();
                 for (_, field_value) in field_order.iter().take(3) {
                     if !field_value.is_empty() {
@@ -62,19 +73,8 @@ impl LogItemFormatter for DyehLogFormatter {
                 parts.push(content);
                 parts.join(" ")
             }
-            3 => {
-                // detailed: all fields
-                let mut parts = Vec::new();
-                for (_, field_value) in field_order.iter() {
-                    if !field_value.is_empty() {
-                        parts.push(format!("[{}]", field_value));
-                    }
-                }
-                parts.push(content);
-                parts.join(" ")
-            }
             _ => {
-                // full (4+): all fields + raw content
+                // all fields (time + level + tag + origin)
                 let mut parts = Vec::new();
                 for (_, field_value) in field_order.iter() {
                     if !field_value.is_empty() {
