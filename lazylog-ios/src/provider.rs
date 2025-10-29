@@ -159,71 +159,118 @@ impl IosLogProvider {
         should_stop: Arc<Mutex<bool>>,
         child_process: Arc<Mutex<Option<Child>>>,
     ) -> Result<()> {
-        log::debug!("Spawning idevicesyslog command...");
-
-        // spawn idevicesyslog command
-        let mut child = Command::new("idevicesyslog")
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()?;
-
-        let stdout = child.stdout.take().expect("Failed to get stdout");
-        let mut reader = BufReader::new(stdout).lines();
-
-        // store the child process handle
-        if let Ok(mut child_opt) = child_process.lock() {
-            *child_opt = Some(child);
-        }
-
-        log::debug!("Syslog relay connected, streaming logs...");
-
-        // stream logs continuously
         loop {
-            // check if we should stop
+            // check if we should stop before attempting connection
             if let Ok(stop) = should_stop.lock() {
                 if *stop {
-                    log::debug!("Stop signal received, exiting syslog relay");
-                    break;
+                    log::debug!("Stop signal received before device connection");
+                    return Ok(());
                 }
             }
 
-            // read next line with a timeout approach
-            match tokio::time::timeout(std::time::Duration::from_millis(100), reader.next_line())
-                .await
-            {
-                Ok(Ok(Some(log_line))) => {
-                    // decode the vis-encoded syslog line first
-                    // the trim_matches is to remove the null byte at the beginning, not sure why it's there
-                    let decoded_log = decode_syslog(&log_line);
+            log::debug!("Attempting to connect to iOS device...");
 
-                    // push to buffer
-                    if let Ok(mut buffer) = log_buffer.lock() {
-                        buffer.push(decoded_log);
-                    }
+            // spawn idevicesyslog command
+            let mut child = match Command::new("idevicesyslog")
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+            {
+                Ok(child) => child,
+                Err(e) => {
+                    log::error!("Failed to spawn idevicesyslog: {}", e);
+                    return Err(e.into());
                 }
-                Ok(Ok(None)) => {
-                    log::debug!("idevicesyslog stream ended");
-                    break;
-                }
-                Ok(Err(e)) => {
-                    log::error!("Error reading log: {}", e);
-                    break;
-                }
-                Err(_) => {
-                    // timeout - just continue to check should_stop
+            };
+
+            // check stderr for "No device found" message
+            let _stderr = child.stderr.take();
+            let stdout = child.stdout.take();
+
+            // wait briefly for the process to either start streaming or fail
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+            // check if process has exited (indicating no device found)
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    // process exited - likely no device found
+                    log::warn!(
+                        "No iOS device found (exit status: {}), retrying in 1s...",
+                        status
+                    );
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                     continue;
                 }
+                Ok(None) => {
+                    // process still running - device found!
+                    log::debug!("iOS device connected, streaming logs...");
+
+                    let stdout = stdout.expect("Failed to get stdout");
+                    let mut reader = BufReader::new(stdout).lines();
+
+                    // store the child process handle
+                    if let Ok(mut child_opt) = child_process.lock() {
+                        *child_opt = Some(child);
+                    }
+
+                    // stream logs continuously
+                    loop {
+                        // check if we should stop
+                        if let Ok(stop) = should_stop.lock() {
+                            if *stop {
+                                log::debug!("Stop signal received, exiting syslog relay");
+                                break;
+                            }
+                        }
+
+                        // read next line with a timeout approach
+                        match tokio::time::timeout(
+                            std::time::Duration::from_millis(100),
+                            reader.next_line(),
+                        )
+                        .await
+                        {
+                            Ok(Ok(Some(log_line))) => {
+                                // decode the vis-encoded syslog line first
+                                let decoded_log = decode_syslog(&log_line);
+
+                                // push to buffer
+                                if let Ok(mut buffer) = log_buffer.lock() {
+                                    buffer.push(decoded_log);
+                                }
+                            }
+                            Ok(Ok(None)) => {
+                                log::debug!("idevicesyslog stream ended, device disconnected");
+                                break;
+                            }
+                            Ok(Err(e)) => {
+                                log::error!("Error reading log: {}", e);
+                                break;
+                            }
+                            Err(_) => {
+                                // timeout - just continue to check should_stop
+                                continue;
+                            }
+                        }
+                    }
+
+                    // clean up the child process
+                    if let Ok(mut child_opt) = child_process.lock() {
+                        if let Some(mut child) = child_opt.take() {
+                            let _ = child.kill().await;
+                            let _ = child.wait().await;
+                        }
+                    }
+
+                    // after device disconnects, retry connection
+                    log::debug!("Retrying device connection...");
+                    continue;
+                }
+                Err(e) => {
+                    log::error!("Error checking process status: {}", e);
+                    return Err(e.into());
+                }
             }
         }
-
-        // clean up the child process
-        if let Ok(mut child_opt) = child_process.lock() {
-            if let Some(mut child) = child_opt.take() {
-                let _ = child.kill().await;
-                let _ = child.wait().await;
-            }
-        }
-
-        Ok(())
     }
 }
