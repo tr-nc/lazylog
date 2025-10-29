@@ -4,7 +4,6 @@
 
 mod file_finder;
 mod formatter;
-mod parser;
 mod provider;
 
 pub use formatter::DyehLogFormatter;

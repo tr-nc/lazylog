@@ -7,10 +7,13 @@ authors.workspace = true
 [dependencies]
 # framework
 lazylog-framework = { path = "../lazylog-framework" }
+lazylog-parser = { path = "../lazylog-parser" }
 
 # workspace dependencies
 anyhow.workspace = true
+lazy_static.workspace = true
 log.workspace = true
+regex.workspace = true
 
 # async runtime for spawning command-line tools
 tokio = { version = "1", features = ["full"] }

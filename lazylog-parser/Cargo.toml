@@ -1,0 +1,15 @@
+[package]
+name = "lazylog-parser"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Structured log parser for DYEH/iOS format logs"
+
+[lib]
+name = "lazylog_parser"
+path = "src/lib.rs"
+
+[dependencies]
+lazylog-framework = { path = "../lazylog-framework" }
+lazy_static.workspace = true
+regex.workspace = true

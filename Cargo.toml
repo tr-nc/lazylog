@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "lazylog-framework",
+    "lazylog-parser",
     "lazylog-dyeh",
     "lazylog-ios",
     "lazylog-bin",

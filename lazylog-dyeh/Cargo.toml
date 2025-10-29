@@ -12,6 +12,7 @@ path = "src/lib.rs"
 
 [dependencies]
 lazylog-framework = { path = "../lazylog-framework" }
+lazylog-parser = { path = "../lazylog-parser" }
 anyhow.workspace = true
 chrono.workspace = true
 dirs.workspace = true
