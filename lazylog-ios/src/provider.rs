@@ -10,9 +10,9 @@ use tokio::process::{Child, Command};
 use tokio::runtime::Runtime;
 
 use crate::decoder::decode_syslog;
+use crate::parser::parse_ios_log;
 
-// GFilter compile-time toggle
-const GFILTER_ENABLED: bool = true;
+const GFILTER_ENABLED: bool = false;
 
 lazy_static! {
     // For checking if log contains structured format
@@ -36,49 +36,6 @@ impl IosLogProvider {
             thread_handle: None,
             child_process: None,
         }
-    }
-
-    fn parse_ios_log(raw_log: &str) -> LogItem {
-        // iOS log format: "Oct 27 16:10:13 deviceName processName[pid] <Level>: content"
-        // or: "Oct 28 19:24:46 backboardd[CoreBrightness](68) <Notice>: content"
-        let parts: Vec<&str> = raw_log.splitn(5, ' ').collect();
-
-        if parts.len() < 5 {
-            // malformed log, return as-is
-            return LogItem::new(raw_log.to_string(), raw_log.to_string());
-        }
-
-        // extract tag: the 4th item (index 3), process it to only leave the name before [ or (
-        let tag = parts[3]
-            .split('[')
-            .next()
-            .and_then(|s| s.split('(').next())
-            .unwrap_or(parts[3])
-            .to_string();
-
-        // level and content from the 5th item onwards
-        let level_and_content = parts[4];
-        let (level, content) = if let Some(start) = level_and_content.find('<') {
-            if let Some(end) = level_and_content.find(">:") {
-                // extract level without angle brackets
-                let level = &level_and_content[start + 1..end];
-                let content = &level_and_content[end + 2..];
-                (level.to_string(), content.trim().to_string())
-            } else {
-                (String::new(), level_and_content.to_string())
-            }
-        } else {
-            (String::new(), level_and_content.to_string())
-        };
-
-        let mut item = LogItem::new(content, raw_log.to_string());
-        if !level.is_empty() {
-            item = item.with_metadata("level", level);
-        }
-        if !tag.is_empty() {
-            item = item.with_metadata("tag", tag);
-        }
-        item
     }
 
     /// Apply gfilter: keep only logs with structured timestamp marker
@@ -198,10 +155,7 @@ impl LogProvider for IosLogProvider {
             Ok(log_items)
         } else {
             // Simple iOS parsing (original behavior)
-            let log_items: Vec<LogItem> = raw_logs
-                .iter()
-                .map(|log| Self::parse_ios_log(log))
-                .collect();
+            let log_items: Vec<LogItem> = raw_logs.iter().map(|log| parse_ios_log(log)).collect();
 
             if !log_items.is_empty() {
                 log::debug!("IosLogProvider: Polled {} log items", log_items.len());
