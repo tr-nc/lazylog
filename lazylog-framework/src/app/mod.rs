@@ -3,7 +3,7 @@ use crate::{
     filter::FilterEngine,
     log_list::LogList,
     log_parser::{LogDetailLevel, LogItem},
-    provider::{LogItemFormatter, LogProvider, spawn_provider_thread},
+    provider::{LogParser, LogProvider, spawn_provider_thread},
     status_bar::DisplayEvent,
     theme,
     ui_logger::UiLogger,
@@ -43,16 +43,16 @@ pub struct AppDesc {
     pub poll_interval: Duration,
     pub show_debug_logs: bool,
     pub ring_buffer_size: usize,
-    pub formatter: Arc<dyn LogItemFormatter>,
+    pub parser: Arc<dyn LogParser>,
 }
 
 impl AppDesc {
-    pub fn new(formatter: Arc<dyn LogItemFormatter>) -> Self {
+    pub fn new(parser: Arc<dyn LogParser>) -> Self {
         Self {
             poll_interval: Duration::from_millis(DEFAULT_POLL_INTERVAL_MS),
             show_debug_logs: false,
             ring_buffer_size: DEFAULT_RING_BUFFER_SIZE,
-            formatter,
+            parser,
         }
     }
 }
@@ -61,12 +61,12 @@ impl AppDesc {
 pub fn start_with_provider<P>(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     provider: P,
-    formatter: Arc<dyn LogItemFormatter>,
+    parser: Arc<dyn LogParser>,
 ) -> Result<()>
 where
     P: LogProvider + 'static,
 {
-    start_with_desc(terminal, provider, AppDesc::new(formatter))
+    start_with_desc(terminal, provider, AppDesc::new(parser))
 }
 
 /// Start the application with custom configuration
@@ -96,7 +96,7 @@ struct App {
     filter_focused: bool, // Whether the filter input is focused
     filter_engine: FilterEngine, // Filtering engine with incremental + parallel support
     detail_level: LogDetailLevel, // Detail level for log display
-    formatter: Arc<dyn LogItemFormatter>, // Formatter for log items
+    parser: Arc<dyn LogParser>, // Parser for log items (handles both parsing and formatting)
     debug_logs: Arc<Mutex<Vec<String>>>, // Debug log messages for UI display
     hard_focused_block_id: uuid::Uuid, // Hard focus: set by clicking, persists until another click (defaults to logs_block)
     soft_focused_block_id: Option<uuid::Uuid>, // Soft focus: set by hovering, changes with mouse movement
@@ -151,7 +151,7 @@ impl App {
         // spawn provider thread
         let poll_interval = desc.poll_interval;
         let (provider_thread, provider_stop_signal) =
-            spawn_provider_thread(provider, producer, poll_interval);
+            spawn_provider_thread(provider, desc.parser.clone(), producer, poll_interval);
 
         // create blocks first so we can reference their IDs
         let logs_block = AppBlock::new().set_title("[1]─Logs".to_string());
@@ -164,9 +164,9 @@ impl App {
 
         let logs_block_id = logs_block.id();
 
-        // setup filter engine with formatter
+        // setup filter engine with parser
         let mut filter_engine = FilterEngine::new();
-        filter_engine.set_formatter(desc.formatter.clone());
+        filter_engine.set_formatter(desc.parser.clone());
 
         Self {
             is_exiting: false,
@@ -180,7 +180,7 @@ impl App {
             filter_focused: false,
             filter_engine,
             detail_level: 1, // default detail level (was Basic)
-            formatter: desc.formatter,
+            parser: desc.parser,
             debug_logs,
             hard_focused_block_id: logs_block_id,
             soft_focused_block_id: None,

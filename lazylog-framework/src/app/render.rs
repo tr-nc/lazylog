@@ -412,7 +412,7 @@ impl App {
             let raw_idx = self.displaying_logs.get(item_idx).unwrap();
             let log_item = &self.raw_logs[raw_idx];
 
-            let detail_text = self.formatter.format_preview(log_item, self.detail_level);
+            let detail_text = self.parser.format_preview(log_item, self.detail_level);
             let level_style = match log_item.get_metadata("level").unwrap_or("") {
                 "ERROR" => theme::ERROR_STYLE,
                 "WARNING" => theme::WARN_STYLE,

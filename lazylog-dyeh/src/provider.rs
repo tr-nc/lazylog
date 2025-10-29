@@ -1,7 +1,6 @@
 use crate::{file_finder, metadata};
 use anyhow::Result;
-use lazylog_framework::provider::{LogItem, LogProvider};
-use lazylog_parser::process_delta;
+use lazylog_framework::provider::LogProvider;
 use memmap2::MmapOptions;
 use std::{
     fs::File,
@@ -104,7 +103,7 @@ impl DyehLogProvider {
         self.prev_meta = None;
     }
 
-    fn read_delta(file_path: &Path, prev_len: u64, cur_len: u64) -> Result<Vec<LogItem>> {
+    fn read_delta(file_path: &Path, prev_len: u64, cur_len: u64) -> Result<Vec<String>> {
         let file = File::open(file_path)?;
         let mmap = unsafe { MmapOptions::new().len(cur_len as usize).map(&file)? };
 
@@ -117,9 +116,43 @@ impl DyehLogProvider {
         }
 
         let delta_str = String::from_utf8_lossy(delta_bytes);
-        let log_items = process_delta(&delta_str);
 
-        Ok(log_items)
+        // split by ## markers to get complete log blocks
+        let log_blocks = Self::split_by_markers(&delta_str);
+
+        Ok(log_blocks)
+    }
+
+    fn split_by_markers(text: &str) -> Vec<String> {
+        use lazy_static::lazy_static;
+        use regex::Regex;
+
+        lazy_static! {
+            static ref MARKER_RE: Regex =
+                Regex::new(r"## \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}").unwrap();
+        }
+
+        let mut blocks = Vec::new();
+        let mut starts: Vec<usize> = MARKER_RE.find_iter(text).map(|m| m.start()).collect();
+
+        if starts.is_empty() {
+            return blocks;
+        }
+
+        // add sentinel for the last block
+        starts.push(text.len());
+
+        // extract each block from one ## to the next ##
+        for window in starts.windows(2) {
+            if let [start, end] = *window {
+                let block = text[start..end].trim().to_string();
+                if !block.is_empty() {
+                    blocks.push(block);
+                }
+            }
+        }
+
+        blocks
     }
 }
 
@@ -134,7 +167,7 @@ impl LogProvider for DyehLogProvider {
         Ok(())
     }
 
-    fn poll_logs(&mut self) -> Result<Vec<LogItem>> {
+    fn poll_logs(&mut self) -> Result<Vec<String>> {
         // check for newer log file
         if let Ok(Some(newer_file)) = self.check_for_newer_log_file() {
             self.switch_to_log_file(newer_file);
@@ -158,12 +191,12 @@ impl LogProvider for DyehLogProvider {
             self.last_len = 0;
         }
 
-        let mut new_items = Vec::new();
+        let mut log_blocks = Vec::new();
         if current_meta.len > self.last_len {
             match Self::read_delta(&self.log_file_path, self.last_len, current_meta.len) {
-                Ok(items) => {
-                    log::debug!("DyehLogProvider: Read {} new log items", items.len());
-                    new_items = items;
+                Ok(blocks) => {
+                    log::debug!("DyehLogProvider: Read {} new log blocks", blocks.len());
+                    log_blocks = blocks;
                 }
                 Err(e) => {
                     log::debug!("DyehLogProvider: Error reading delta: {}", e);
@@ -173,6 +206,6 @@ impl LogProvider for DyehLogProvider {
         }
 
         self.prev_meta = Some(current_meta);
-        Ok(new_items)
+        Ok(log_blocks)
     }
 }

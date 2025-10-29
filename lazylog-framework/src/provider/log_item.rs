@@ -36,8 +36,13 @@ impl LogItem {
 /// detail level for log display (0-255, provider-specific interpretation)
 pub type LogDetailLevel = u8;
 
-/// trait for formatting log items in a provider-specific way
-pub trait LogItemFormatter: Send + Sync {
+/// trait for parsing raw log strings and formatting them for display
+/// combines parsing (string → LogItem) and formatting (LogItem → display string)
+pub trait LogParser: Send + Sync {
+    /// parse a raw log string into a structured LogItem
+    /// returns None if the parser acts as a filter and rejects this log
+    fn parse(&self, raw_log: &str) -> Option<LogItem>;
+
     /// format a log item for preview display based on detail level
     /// detail_level: 0 = minimal, higher = more detailed
     fn format_preview(&self, item: &LogItem, detail_level: LogDetailLevel) -> String;
@@ -51,7 +56,7 @@ pub trait LogItemFormatter: Send + Sync {
         item.raw_content.clone()
     }
 
-    /// get maximum detail level supported by this formatter
+    /// get maximum detail level supported by this parser
     fn max_detail_level(&self) -> LogDetailLevel {
         4 // default: 5 levels (0-4)
     }

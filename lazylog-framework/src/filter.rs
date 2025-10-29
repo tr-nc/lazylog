@@ -1,4 +1,4 @@
-use crate::provider::{LogDetailLevel, LogItem, LogItemFormatter};
+use crate::provider::{LogDetailLevel, LogItem, LogParser};
 use rayon::prelude::*;
 use std::sync::Arc;
 
@@ -8,8 +8,8 @@ pub struct FilterEngine {
     previous_query: String,
     /// cached results from previous filter
     previous_results: Vec<usize>,
-    /// formatter for converting log items to searchable text
-    formatter: Option<Arc<dyn LogItemFormatter>>,
+    /// parser for converting log items to searchable text
+    parser: Option<Arc<dyn LogParser>>,
 }
 
 impl FilterEngine {
@@ -18,13 +18,13 @@ impl FilterEngine {
         Self {
             previous_query: String::new(),
             previous_results: Vec::new(),
-            formatter: None,
+            parser: None,
         }
     }
 
-    /// set the formatter to use for filtering
-    pub fn set_formatter(&mut self, formatter: Arc<dyn LogItemFormatter>) {
-        self.formatter = Some(formatter);
+    /// set the parser to use for filtering
+    pub fn set_formatter(&mut self, parser: Arc<dyn LogParser>) {
+        self.parser = Some(parser);
     }
 
     /// filter logs and return indices of matching items
@@ -43,8 +43,8 @@ impl FilterEngine {
             return (0..raw_logs.len()).collect();
         }
 
-        // if no formatter is set, return all items
-        let Some(formatter) = &self.formatter else {
+        // if no parser is set, return all items
+        let Some(parser) = &self.parser else {
             return (0..raw_logs.len()).collect();
         };
 
@@ -71,7 +71,7 @@ impl FilterEngine {
                 &search_space,
                 &pattern_lower,
                 detail_level,
-                formatter,
+                parser,
             )
         } else {
             self.filter_sequential(
@@ -79,7 +79,7 @@ impl FilterEngine {
                 &search_space,
                 &pattern_lower,
                 detail_level,
-                formatter,
+                parser,
             )
         };
 
@@ -121,8 +121,8 @@ impl FilterEngine {
             return (0..raw_logs.len()).collect();
         }
 
-        // if no formatter is set, return all items
-        let Some(formatter) = &self.formatter else {
+        // if no parser is set, return all items
+        let Some(parser) = &self.parser else {
             return (0..raw_logs.len()).collect();
         };
 
@@ -131,21 +131,9 @@ impl FilterEngine {
         let pattern_lower = query.to_lowercase();
 
         let new_filtered = if new_indices.len() > 1000 {
-            self.filter_parallel(
-                raw_logs,
-                &new_indices,
-                &pattern_lower,
-                detail_level,
-                formatter,
-            )
+            self.filter_parallel(raw_logs, &new_indices, &pattern_lower, detail_level, parser)
         } else {
-            self.filter_sequential(
-                raw_logs,
-                &new_indices,
-                &pattern_lower,
-                detail_level,
-                formatter,
-            )
+            self.filter_sequential(raw_logs, &new_indices, &pattern_lower, detail_level, parser)
         };
 
         // append new filtered indices to existing results
@@ -166,13 +154,13 @@ impl FilterEngine {
         search_space: &[usize],
         pattern_lower: &str,
         detail_level: LogDetailLevel,
-        formatter: &Arc<dyn LogItemFormatter>,
+        parser: &Arc<dyn LogParser>,
     ) -> Vec<usize> {
         search_space
             .iter()
             .filter(|&&idx| {
                 let item = &raw_logs[idx];
-                formatter
+                parser
                     .get_searchable_text(item, detail_level)
                     .to_lowercase()
                     .contains(pattern_lower)
@@ -188,13 +176,13 @@ impl FilterEngine {
         search_space: &[usize],
         pattern_lower: &str,
         detail_level: LogDetailLevel,
-        formatter: &Arc<dyn LogItemFormatter>,
+        parser: &Arc<dyn LogParser>,
     ) -> Vec<usize> {
         search_space
             .par_iter()
             .filter(|&&idx| {
                 let item = &raw_logs[idx];
-                formatter
+                parser
                     .get_searchable_text(item, detail_level)
                     .to_lowercase()
                     .contains(pattern_lower)

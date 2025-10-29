@@ -77,7 +77,7 @@ impl App {
         let item = &self.raw_logs[raw_idx];
 
         let mut clipboard = Clipboard::new()?;
-        let yank_content = self.formatter.make_yank_content(item);
+        let yank_content = self.parser.make_yank_content(item);
         clipboard.set_text(&yank_content)?;
 
         log::debug!("Copied {} chars to clipboard", yank_content.len());
@@ -226,7 +226,7 @@ impl App {
             }
             KeyCode::Char(']') => {
                 // increase detail level (show more info) - non-circular
-                let max = self.formatter.max_detail_level();
+                let max = self.parser.max_detail_level();
                 self.detail_level = increment_detail_level(self.detail_level, max);
                 // reset filter cache since preview text changes
                 self.filter_engine.reset();

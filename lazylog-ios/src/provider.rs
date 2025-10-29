@@ -1,8 +1,5 @@
 use anyhow::Result;
-use lazy_static::lazy_static;
-use lazylog_framework::provider::{LogItem, LogProvider};
-use lazylog_parser::process_delta;
-use regex::Regex;
+use lazylog_framework::provider::LogProvider;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -10,15 +7,6 @@ use tokio::process::{Child, Command};
 use tokio::runtime::Runtime;
 
 use crate::decoder::decode_syslog;
-use crate::parser::parse_ios_log;
-
-const GFILTER_ENABLED: bool = false;
-
-lazy_static! {
-    // For checking if log contains structured format
-    static ref STRUCTURED_MARKER_RE: Regex =
-        Regex::new(r"## \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}").unwrap();
-}
 
 /// log provider for iOS device logs (syslog relay)
 pub struct IosLogProvider {
@@ -36,25 +24,6 @@ impl IosLogProvider {
             thread_handle: None,
             child_process: None,
         }
-    }
-
-    /// Apply gfilter: keep only logs with structured timestamp marker
-    fn apply_gfilter(raw_logs: Vec<String>) -> Vec<String> {
-        if !GFILTER_ENABLED {
-            return raw_logs;
-        }
-
-        raw_logs
-            .into_iter()
-            .filter(|log| STRUCTURED_MARKER_RE.is_match(log))
-            .collect()
-    }
-
-    /// Strip iOS wrapper to extract inner structured content
-    /// Input:  "Oct 29 11:27:36 EffectCam[6923] <Notice>: [content...]"
-    /// Output: "[content...]"
-    fn strip_ios_wrapper(ios_log: &str) -> Option<&str> {
-        ios_log.find(">: ").map(|idx| &ios_log[idx + 3..])
     }
 }
 
@@ -122,47 +91,16 @@ impl LogProvider for IosLogProvider {
         Ok(())
     }
 
-    fn poll_logs(&mut self) -> Result<Vec<LogItem>> {
-        // drain the log buffer and parse into LogItems
+    fn poll_logs(&mut self) -> Result<Vec<String>> {
+        // drain the log buffer and return decoded strings
         let mut buffer = self.log_buffer.lock().unwrap();
         let raw_logs: Vec<String> = buffer.drain(..).collect();
 
-        if GFILTER_ENABLED {
-            // Structured parsing path
-            let filtered_logs = Self::apply_gfilter(raw_logs);
-
-            let structured_content: Vec<String> = filtered_logs
-                .iter()
-                .filter_map(|log| Self::strip_ios_wrapper(log))
-                .map(|s| s.to_string())
-                .collect();
-
-            if structured_content.is_empty() {
-                return Ok(Vec::new());
-            }
-
-            // join all content and parse as one delta
-            let combined = structured_content.join("\n");
-            let log_items = process_delta(&combined);
-
-            if !log_items.is_empty() {
-                log::debug!(
-                    "IosLogProvider: Parsed {} structured log items",
-                    log_items.len()
-                );
-            }
-
-            Ok(log_items)
-        } else {
-            // Simple iOS parsing (original behavior)
-            let log_items: Vec<LogItem> = raw_logs.iter().map(|log| parse_ios_log(log)).collect();
-
-            if !log_items.is_empty() {
-                log::debug!("IosLogProvider: Polled {} log items", log_items.len());
-            }
-
-            Ok(log_items)
+        if !raw_logs.is_empty() {
+            log::debug!("IosLogProvider: Polled {} log lines", raw_logs.len());
         }
+
+        Ok(raw_logs)
     }
 }
 

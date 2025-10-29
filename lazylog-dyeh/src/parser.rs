@@ -1,9 +1,10 @@
-use lazylog_framework::provider::{LogDetailLevel, LogItem, LogItemFormatter};
+use lazylog_framework::provider::{LogDetailLevel, LogItem, LogParser};
+use lazylog_parser::process_delta;
 
-/// iOS-specific formatter for log items
-pub struct IosLogFormatter;
+/// DYEH log parser - uses lazylog-parser to parse structured DYEH logs
+pub struct DyehParser;
 
-impl IosLogFormatter {
+impl DyehParser {
     pub fn new() -> Self {
         Self
     }
@@ -22,15 +23,40 @@ impl IosLogFormatter {
     }
 }
 
-impl LogItemFormatter for IosLogFormatter {
+impl Default for DyehParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl LogParser for DyehParser {
+    fn parse(&self, raw_log: &str) -> Option<LogItem> {
+        // use lazylog-parser to parse structured DYEH log format
+        let log_items = process_delta(raw_log);
+
+        // return first parsed item if available, otherwise create a simple item
+        Some(
+            log_items
+                .into_iter()
+                .next()
+                .unwrap_or_else(|| LogItem::new(raw_log.to_string(), raw_log.to_string())),
+        )
+    }
+
     fn format_preview(&self, item: &LogItem, detail_level: LogDetailLevel) -> String {
         let content = Self::shorten_content(&item.content);
 
         let time = &item.time;
         let level = item.get_metadata("level").unwrap_or("");
         let tag = item.get_metadata("tag").unwrap_or("");
+        let origin = item.get_metadata("origin").unwrap_or("");
 
-        let field_order = [("time", time.as_str()), ("tag", tag), ("level", level)];
+        let field_order = [
+            ("time", time.as_str()),
+            ("level", level),
+            ("tag", tag),
+            ("origin", origin),
+        ];
 
         match detail_level {
             0 => content, // content only
@@ -56,8 +82,19 @@ impl LogItemFormatter for IosLogFormatter {
                 parts.push(content);
                 parts.join(" ")
             }
+            3 => {
+                // time + level + tag
+                let mut parts = Vec::new();
+                for (_, field_value) in field_order.iter().take(3) {
+                    if !field_value.is_empty() {
+                        parts.push(format!("[{}]", field_value));
+                    }
+                }
+                parts.push(content);
+                parts.join(" ")
+            }
             _ => {
-                // all fields (time + level + tag)
+                // all fields (time + level + tag + origin)
                 let mut parts = Vec::new();
                 for (_, field_value) in field_order.iter() {
                     if !field_value.is_empty() {
@@ -79,6 +116,6 @@ impl LogItemFormatter for IosLogFormatter {
     }
 
     fn max_detail_level(&self) -> LogDetailLevel {
-        3 // 4 levels: 0=content, 1=time, 2=time+level, 3=all
+        4 // 5 levels: 0=content, 1=time, 2=time+level, 3=time+level+tag, 4=all
     }
 }

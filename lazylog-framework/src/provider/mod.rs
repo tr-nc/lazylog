@@ -1,7 +1,7 @@
 mod log_item;
 
 pub use log_item::{
-    LogDetailLevel, LogItem, LogItemFormatter, decrement_detail_level, increment_detail_level,
+    LogDetailLevel, LogItem, LogParser, decrement_detail_level, increment_detail_level,
 };
 
 use anyhow::Result;
@@ -24,12 +24,14 @@ pub trait LogProvider: Send {
     fn stop(&mut self) -> Result<()>;
 
     /// poll for new logs (non-blocking)
-    fn poll_logs(&mut self) -> Result<Vec<LogItem>>;
+    /// returns raw log strings (decoded/normalized, but not parsed)
+    fn poll_logs(&mut self) -> Result<Vec<String>>;
 }
 
 /// spawns a provider thread that continuously polls logs and pushes to ring buffer
 pub fn spawn_provider_thread<P>(
     mut provider: P,
+    parser: Arc<dyn LogParser>,
     mut producer: impl Producer<Item = LogItem> + Send + 'static,
     poll_interval: Duration,
 ) -> (thread::JoinHandle<()>, Arc<AtomicBool>)
@@ -49,10 +51,13 @@ where
 
         while !should_stop_clone.load(Ordering::Relaxed) {
             match provider.poll_logs() {
-                Ok(logs) => {
-                    for log in logs {
-                        if producer.try_push(log).is_err() {
-                            log::debug!("Ring buffer full, dropping log");
+                Ok(raw_logs) => {
+                    for raw_log in raw_logs {
+                        // parser may return None if it acts as a filter
+                        if let Some(log_item) = parser.parse(&raw_log) {
+                            if producer.try_push(log_item).is_err() {
+                                log::debug!("Ring buffer full, dropping log");
+                            }
                         }
                     }
                 }

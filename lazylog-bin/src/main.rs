@@ -1,7 +1,7 @@
 use crossterm::event;
-use lazylog_dyeh::{DyehLogFormatter, DyehLogProvider};
+use lazylog_dyeh::{DyehLogProvider, DyehParser};
 use lazylog_framework::start_with_provider;
-use lazylog_ios::{IosLogFormatter, IosLogProvider};
+use lazylog_ios::{IosLogProvider, IosSimpleParser, IosStructuredParser};
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
@@ -21,9 +21,10 @@ fn print_usage() {
     eprintln!("Usage: lazylog [OPTIONS]");
     eprintln!();
     eprintln!("Options:");
-    eprintln!("  --ios        Use iOS device log provider (via syslog relay)");
-    eprintln!("  --dyeh       Use DYEH file-based log provider (default)");
-    eprintln!("  --help       Print this help message");
+    eprintln!("  --ios              Use iOS device log provider (via syslog relay)");
+    eprintln!("  --ios-parser TYPE  iOS parser type: 'simple' or 'structured' (default: simple)");
+    eprintln!("  --dyeh             Use DYEH file-based log provider (default)");
+    eprintln!("  --help             Print this help message");
 }
 
 fn main() -> io::Result<()> {
@@ -33,6 +34,13 @@ fn main() -> io::Result<()> {
     let use_ios = args.iter().any(|arg| arg == "--ios");
     let _use_dyeh = args.iter().any(|arg| arg == "--dyeh");
     let show_help = args.iter().any(|arg| arg == "--help" || arg == "-h");
+
+    // parse ios-parser type
+    let ios_parser_type = args
+        .windows(2)
+        .find(|w| w[0] == "--ios-parser")
+        .map(|w| w[1].as_str())
+        .unwrap_or("simple");
 
     if show_help {
         print_usage();
@@ -50,8 +58,17 @@ fn main() -> io::Result<()> {
     let app_result = if use_ios {
         // iOS provider
         let provider = IosLogProvider::new();
-        let formatter = Arc::new(IosLogFormatter::new());
-        start_with_provider(&mut terminal, provider, formatter)
+        let parser: Arc<dyn lazylog_framework::provider::LogParser> = match ios_parser_type {
+            "structured" => {
+                eprintln!("Using iOS structured parser");
+                Arc::new(IosStructuredParser::new())
+            }
+            _ => {
+                eprintln!("Using iOS simple parser");
+                Arc::new(IosSimpleParser::new())
+            }
+        };
+        start_with_provider(&mut terminal, provider, parser)
     } else {
         // DYEH provider (default)
         let log_dir_path = match dirs::home_dir() {
@@ -64,8 +81,8 @@ fn main() -> io::Result<()> {
         };
 
         let provider = DyehLogProvider::new(log_dir_path);
-        let formatter = Arc::new(DyehLogFormatter::new());
-        start_with_provider(&mut terminal, provider, formatter)
+        let parser = Arc::new(DyehParser::new());
+        start_with_provider(&mut terminal, provider, parser)
     };
 
     restore_terminal()?;
