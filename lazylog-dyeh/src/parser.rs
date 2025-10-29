@@ -53,8 +53,8 @@ impl LogParser for DyehParser {
 
         let field_order = [
             ("time", time.as_str()),
-            ("level", level),
             ("tag", tag),
+            ("level", level),
             ("origin", origin),
         ];
 
