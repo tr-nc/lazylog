@@ -10,9 +10,9 @@ lazy_static! {
 }
 
 /// simple iOS log parser - parses basic iOS syslog format
-pub struct IosSimpleParser;
+pub struct IosFullParser;
 
-impl IosSimpleParser {
+impl IosFullParser {
     pub fn new() -> Self {
         Self
     }
@@ -31,13 +31,13 @@ impl IosSimpleParser {
     }
 }
 
-impl Default for IosSimpleParser {
+impl Default for IosFullParser {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl LogParser for IosSimpleParser {
+impl LogParser for IosFullParser {
     fn parse(&self, raw_log: &str) -> Option<LogItem> {
         let parts: Vec<&str> = raw_log.splitn(5, ' ').collect();
 
@@ -140,14 +140,14 @@ impl LogParser for IosSimpleParser {
 }
 
 /// structured iOS log parser - filters for structured logs and delegates to lazylog-parser
-pub struct IosStructuredParser {
-    simple_parser: IosSimpleParser,
+pub struct IosEffectParser {
+    simple_parser: IosFullParser,
 }
 
-impl IosStructuredParser {
+impl IosEffectParser {
     pub fn new() -> Self {
         Self {
-            simple_parser: IosSimpleParser::new(),
+            simple_parser: IosFullParser::new(),
         }
     }
 
@@ -159,13 +159,13 @@ impl IosStructuredParser {
     }
 }
 
-impl Default for IosStructuredParser {
+impl Default for IosEffectParser {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl LogParser for IosStructuredParser {
+impl LogParser for IosEffectParser {
     fn parse(&self, raw_log: &str) -> Option<LogItem> {
         // check if this log has structured marker
         if !STRUCTURED_MARKER_RE.is_match(raw_log) {

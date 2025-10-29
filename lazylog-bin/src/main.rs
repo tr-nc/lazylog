@@ -1,7 +1,7 @@
 use crossterm::event;
 use lazylog_dyeh::{DyehLogProvider, DyehParser};
 use lazylog_framework::start_with_provider;
-use lazylog_ios::{IosLogProvider, IosSimpleParser, IosStructuredParser};
+use lazylog_ios::{IosEffectParser, IosFullParser, IosLogProvider};
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
@@ -21,74 +21,104 @@ fn print_usage() {
     eprintln!("Usage: lazylog [OPTIONS]");
     eprintln!();
     eprintln!("Options:");
-    eprintln!("  --ios              Use iOS device log provider (via syslog relay)");
-    eprintln!("  --ios-parser TYPE  iOS parser type: 'simple' or 'structured' (default: simple)");
-    eprintln!("  --dyeh             Use DYEH file-based log provider (default)");
-    eprintln!("  --help             Print this help message");
+    eprintln!("  --ios-effect       Use iOS effect parser");
+    eprintln!("  --ios-full         Use iOS full parser");
+    eprintln!("  --dyeh             Use DYEH file-based log provider");
+    eprintln!("  --help, -h         Print this help message");
+}
+
+enum UsageOptions {
+    IosEffect,
+    IosFull,
+    Dyeh,
+    Help,
+    None, // default when no args provided
+}
+
+impl UsageOptions {
+    fn from_args(args: &[String]) -> Result<Self, io::Error> {
+        match args.len() {
+            0 => Ok(Self::None),
+            1 => match args[0].as_str() {
+                "--ios-effect" => Ok(Self::IosEffect),
+                "--ios-full" => Ok(Self::IosFull),
+                "--dyeh" => Ok(Self::Dyeh),
+                "--help" | "-h" => Ok(Self::Help),
+                _ => {
+                    print_usage();
+                    Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "Unknown option",
+                    ))
+                }
+            },
+            _ => {
+                print_usage();
+                Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Only zero or one argument is allowed",
+                ))
+            }
+        }
+    }
 }
 
 fn main() -> io::Result<()> {
-    let args: Vec<String> = env::args().collect();
+    // Collect args excluding the binary name
+    let args: Vec<String> = env::args().skip(1).collect();
+    let usage_option = match UsageOptions::from_args(&args) {
+        Ok(opt) => opt,
+        Err(e) => return Err(e),
+    };
 
-    // parse command-line arguments
-    let use_ios = args.iter().any(|arg| arg == "--ios");
-    let _use_dyeh = args.iter().any(|arg| arg == "--dyeh");
-    let show_help = args.iter().any(|arg| arg == "--help" || arg == "-h");
-
-    // parse ios-parser type
-    let ios_parser_type = args
-        .windows(2)
-        .find(|w| w[0] == "--ios-parser")
-        .map(|w| w[1].as_str())
-        .unwrap_or("simple");
-
-    if show_help {
+    if let UsageOptions::Help = usage_option {
         print_usage();
         return Ok(());
     }
 
     let mut terminal = setup_terminal()?;
 
+    // Ensure we restore the terminal on panic
     let original_hook = panic::take_hook();
     panic::set_hook(Box::new(move |panic_info| {
-        restore_terminal().unwrap();
+        let _ = restore_terminal();
         original_hook(panic_info);
     }));
 
-    let app_result = if use_ios {
-        // iOS provider
-        let provider = IosLogProvider::new();
-        let parser: Arc<dyn lazylog_framework::provider::LogParser> = match ios_parser_type {
-            "structured" => {
-                eprintln!("Using iOS structured parser");
-                Arc::new(IosStructuredParser::new())
-            }
-            _ => {
-                eprintln!("Using iOS simple parser");
-                Arc::new(IosSimpleParser::new())
-            }
-        };
-        start_with_provider(&mut terminal, provider, parser)
-    } else {
-        // DYEH provider (default)
-        let log_dir_path = match dirs::home_dir() {
-            Some(path) => path.join("Library/Application Support/DouyinAR"),
-            None => {
+    // Prepare provider and parser based on option (default to DYEH)
+    let app_result = match usage_option {
+        UsageOptions::IosEffect => {
+            let provider = IosLogProvider::new();
+            let parser: Arc<dyn lazylog_framework::provider::LogParser> =
+                Arc::new(IosEffectParser::new());
+            start_with_provider(&mut terminal, provider, parser)
+        }
+        UsageOptions::IosFull => {
+            let provider = IosLogProvider::new();
+            let parser: Arc<dyn lazylog_framework::provider::LogParser> =
+                Arc::new(IosFullParser::new());
+            start_with_provider(&mut terminal, provider, parser)
+        }
+        UsageOptions::Dyeh | UsageOptions::None => {
+            if let Some(dir) = dirs::home_dir() {
+                let log_dir_path = dir.join("Library/Application Support/DouyinAR");
+                let provider = DyehLogProvider::new(log_dir_path);
+                let parser: Arc<dyn lazylog_framework::provider::LogParser> =
+                    Arc::new(DyehParser::new());
+                start_with_provider(&mut terminal, provider, parser)
+            } else {
                 eprintln!("Error: Could not determine home directory");
-                restore_terminal()?;
-                return Ok(());
+                Ok(())
             }
-        };
-
-        let provider = DyehLogProvider::new(log_dir_path);
-        let parser = Arc::new(DyehParser::new());
-        start_with_provider(&mut terminal, provider, parser)
+        }
+        UsageOptions::Help => unreachable!(),
     };
 
+    // Always restore terminal before printing or exiting
     restore_terminal()?;
 
     if let Err(err) = app_result {
-        println!("Application Error: {:?}", err);
+        eprintln!("Application Error: {:?}", err);
     }
 
     Ok(())
@@ -107,15 +137,16 @@ fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<io::Stdout>>> {
 fn restore_terminal() -> io::Result<()> {
     let mut stdout = io::stdout();
 
-    execute!(stdout, DisableMouseCapture)?;
+    // Best-effort cleanup; ignore errors during teardown where sensible
+    let _ = execute!(stdout, DisableMouseCapture);
+    let _ = execute!(stdout, LeaveAlternateScreen);
 
-    execute!(stdout, LeaveAlternateScreen)?;
-
-    while event::poll(Duration::from_millis(0))? {
-        let _ = event::read()?;
+    // Drain pending events so they don't leak to the shell
+    while event::poll(Duration::from_millis(0)).unwrap_or(false) {
+        let _ = event::read();
     }
 
-    disable_raw_mode()?;
+    let _ = disable_raw_mode();
 
     Ok(())
 }
