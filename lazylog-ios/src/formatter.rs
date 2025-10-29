@@ -30,7 +30,7 @@ impl LogItemFormatter for IosLogFormatter {
         let level = item.get_metadata("level").unwrap_or("");
         let tag = item.get_metadata("tag").unwrap_or("");
 
-        let field_order = [("time", time.as_str()), ("level", level), ("tag", tag)];
+        let field_order = [("time", time.as_str()), ("tag", tag), ("level", level)];
 
         match detail_level {
             0 => content, // content only
