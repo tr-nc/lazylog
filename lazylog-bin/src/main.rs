@@ -8,7 +8,11 @@ use ratatui::{
     crossterm::{
         event::{DisableMouseCapture, EnableMouseCapture},
         execute,
-        terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+        style::{Color, ResetColor, SetBackgroundColor},
+        terminal::{
+            Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
+            enable_raw_mode,
+        },
     },
 };
 use std::env;
@@ -130,6 +134,12 @@ fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<io::Stdout>>> {
     // enter the alternate screen to not mess with the user's shell history
     // enable mouse capture to receive mouse events
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    // force reset background color to black and clear the screen
+    execute!(
+        stdout,
+        SetBackgroundColor(Color::Reset),
+        Clear(ClearType::All)
+    )?;
     let backend = CrosstermBackend::new(stdout);
     Terminal::new(backend)
 }
@@ -137,6 +147,8 @@ fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<io::Stdout>>> {
 fn restore_terminal() -> io::Result<()> {
     let mut stdout = io::stdout();
 
+    // reset colors before leaving
+    let _ = execute!(stdout, ResetColor);
     // Best-effort cleanup; ignore errors during teardown where sensible
     let _ = execute!(stdout, DisableMouseCapture);
     let _ = execute!(stdout, LeaveAlternateScreen);
