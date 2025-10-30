@@ -301,6 +301,10 @@ impl App {
                 Ok(())
             }
             KeyCode::Char('g') => {
+                // select the first log item
+                self.displaying_logs.select_first();
+                self.update_selected_uuid();
+
                 self.logs_block.set_scroll_position(0);
                 // force autoscroll to be true so that we don't wait for the next render to update the scrollbar state
                 // waiting for the next render may cause new logs arrive beforehand, thus the view is not at the top
