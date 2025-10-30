@@ -93,8 +93,8 @@ impl App {
 
     pub(super) fn clear_logs(&mut self) {
         self.raw_logs.clear();
-        self.displaying_logs = LogList::new(Vec::new());
-        self.filter_input.clear();
+        self.filter_engine.reset();
+        self.apply_filter();
     }
 
     pub(super) fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
