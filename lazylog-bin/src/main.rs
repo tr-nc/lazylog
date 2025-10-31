@@ -70,10 +70,7 @@ impl UsageOptions {
 fn main() -> io::Result<()> {
     // Collect args excluding the binary name
     let args: Vec<String> = env::args().skip(1).collect();
-    let usage_option = match UsageOptions::from_args(&args) {
-        Ok(opt) => opt,
-        Err(e) => return Err(e),
-    };
+    let usage_option = UsageOptions::from_args(&args)?;
 
     if let UsageOptions::Help = usage_option {
         print_usage();

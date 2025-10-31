@@ -54,10 +54,10 @@ where
                 Ok(raw_logs) => {
                     for raw_log in raw_logs {
                         // parser may return None if it acts as a filter
-                        if let Some(log_item) = parser.parse(&raw_log) {
-                            if producer.try_push(log_item).is_err() {
-                                log::debug!("Ring buffer full, dropping log");
-                            }
+                        if let Some(log_item) = parser.parse(&raw_log)
+                            && producer.try_push(log_item).is_err()
+                        {
+                            log::debug!("Ring buffer full, dropping log");
                         }
                     }
                 }

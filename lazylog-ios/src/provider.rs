@@ -75,12 +75,11 @@ impl LogProvider for IosLogProvider {
         }
 
         // kill the child process
-        if let Some(child_mutex) = &self.child_process {
-            if let Ok(mut child_opt) = child_mutex.lock() {
-                if let Some(child) = child_opt.as_mut() {
-                    let _ = child.start_kill();
-                }
-            }
+        if let Some(child_mutex) = &self.child_process
+            && let Ok(mut child_opt) = child_mutex.lock()
+            && let Some(child) = child_opt.as_mut()
+        {
+            let _ = child.start_kill();
         }
 
         // wait for thread to finish
@@ -113,11 +112,11 @@ impl IosLogProvider {
     ) -> Result<()> {
         loop {
             // check if we should stop before attempting connection
-            if let Ok(stop) = should_stop.lock() {
-                if *stop {
-                    log::debug!("Stop signal received before device connection");
-                    return Ok(());
-                }
+            if let Ok(stop) = should_stop.lock()
+                && *stop
+            {
+                log::debug!("Stop signal received before device connection");
+                return Ok(());
             }
 
             log::debug!("Attempting to connect to iOS device...");
@@ -168,11 +167,11 @@ impl IosLogProvider {
                     // stream logs continuously
                     loop {
                         // check if we should stop
-                        if let Ok(stop) = should_stop.lock() {
-                            if *stop {
-                                log::debug!("Stop signal received, exiting syslog relay");
-                                break;
-                            }
+                        if let Ok(stop) = should_stop.lock()
+                            && *stop
+                        {
+                            log::debug!("Stop signal received, exiting syslog relay");
+                            break;
                         }
 
                         // read next line with a timeout approach
@@ -207,11 +206,17 @@ impl IosLogProvider {
                     }
 
                     // clean up the child process
-                    if let Ok(mut child_opt) = child_process.lock() {
-                        if let Some(mut child) = child_opt.take() {
-                            let _ = child.kill().await;
-                            let _ = child.wait().await;
+                    let child_to_kill = {
+                        if let Ok(mut child_opt) = child_process.lock() {
+                            child_opt.take()
+                        } else {
+                            None
                         }
+                    };
+
+                    if let Some(mut child) = child_to_kill {
+                        let _ = child.kill().await;
+                        let _ = child.wait().await;
                     }
 
                     // after device disconnects, retry connection

@@ -1,8 +1,5 @@
 use super::{App, DISPLAY_EVENT_DURATION_MS};
-use crate::{
-    log_list::LogList,
-    provider::{decrement_detail_level, increment_detail_level},
-};
+use crate::provider::{decrement_detail_level, increment_detail_level};
 use anyhow::Result;
 use arboard::Clipboard;
 use crossterm::event::{self, KeyCode, KeyEvent, KeyEventKind, MouseEvent, MouseEventKind};
