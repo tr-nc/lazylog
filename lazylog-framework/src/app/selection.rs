@@ -45,8 +45,9 @@ impl App {
                 };
 
                 let total_items = self.displaying_logs.len();
-                let max_top = total_items.saturating_sub(1);
-                new_scroll_pos = new_scroll_pos.min(max_top);
+                // max scroll position: stop when last item is fully displayed
+                let max_scroll = total_items.saturating_sub(visible_height);
+                new_scroll_pos = new_scroll_pos.min(max_scroll);
 
                 if new_scroll_pos != current_scroll_pos {
                     self.logs_block.set_scroll_position(new_scroll_pos);
@@ -59,7 +60,36 @@ impl App {
     }
 
     pub(super) fn update_autoscroll_state(&mut self) {
-        self.autoscroll = self.logs_block.get_scroll_position() == 0;
+        let total_items = self.displaying_logs.len();
+        if total_items == 0 {
+            self.autoscroll = true;
+            return;
+        }
+
+        // check if we're at the bottom (autoscroll enabled when at bottom)
+        let scroll_pos = self.logs_block.get_scroll_position();
+
+        // calculate viewport height to determine max scroll position
+        let viewport_height = if let Some(area) = self.last_logs_area {
+            let is_focused = self.is_log_block_focused().unwrap_or(false);
+            let [main_content_area, _] =
+                Layout::horizontal([Constraint::Fill(1), Constraint::Length(1)])
+                    .margin(0)
+                    .areas(area);
+
+            let [content_area, _] = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)])
+                .margin(0)
+                .areas(main_content_area);
+
+            let inner_area = self.logs_block.get_content_rect(content_area, is_focused);
+            inner_area.height as usize
+        } else {
+            1 // fallback if area not yet rendered
+        };
+
+        // max scroll position: stop when last item is fully displayed
+        let max_scroll = total_items.saturating_sub(viewport_height);
+        self.autoscroll = scroll_pos >= max_scroll;
     }
 
     /// Update the UI after manually changing selection

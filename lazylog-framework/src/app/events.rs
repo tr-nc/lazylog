@@ -3,6 +3,7 @@ use crate::provider::{decrement_detail_level, increment_detail_level};
 use anyhow::Result;
 use arboard::Clipboard;
 use crossterm::event::{self, KeyCode, KeyEvent, KeyEventKind, MouseEvent, MouseEventKind};
+use ratatui::prelude::*;
 use std::time::Duration;
 
 impl App {
@@ -68,9 +69,8 @@ impl App {
             return Ok(());
         };
 
-        // Access items in reverse order to match the LOGS panel display order
-        let reversed_index = indices.len().saturating_sub(1).saturating_sub(i);
-        let raw_idx = indices[reversed_index];
+        // access items in natural order
+        let raw_idx = indices[i];
         let item = &self.raw_logs[raw_idx];
 
         let mut clipboard = Clipboard::new()?;
@@ -297,14 +297,37 @@ impl App {
                 self.after_selection_change()?;
                 Ok(())
             }
-            KeyCode::Char('g') => {
-                // select the first log item
-                self.displaying_logs.select_first();
+            KeyCode::Char('G') => {
+                // select the last log item (go to bottom - newest)
+                self.displaying_logs.select_last();
                 self.update_selected_uuid();
 
-                self.logs_block.set_scroll_position(0);
+                // scroll to bottom (stop when last item is fully displayed)
+                let total_items = self.displaying_logs.len();
+
+                // calculate viewport height to determine max scroll position
+                let viewport_height = if let Some(area) = self.last_logs_area {
+                    let is_focused = self.is_log_block_focused().unwrap_or(false);
+                    let [main_content_area, _] =
+                        Layout::horizontal([Constraint::Fill(1), Constraint::Length(1)])
+                            .margin(0)
+                            .areas(area);
+
+                    let [content_area, _] =
+                        Layout::vertical([Constraint::Fill(1), Constraint::Length(1)])
+                            .margin(0)
+                            .areas(main_content_area);
+
+                    let inner_area = self.logs_block.get_content_rect(content_area, is_focused);
+                    inner_area.height as usize
+                } else {
+                    1 // fallback if area not yet rendered
+                };
+
+                let max_scroll = total_items.saturating_sub(viewport_height);
+                self.logs_block.set_scroll_position(max_scroll);
                 // force autoscroll to be true so that we don't wait for the next render to update the scrollbar state
-                // waiting for the next render may cause new logs arrive beforehand, thus the view is not at the top
+                // waiting for the next render may cause new logs arrive beforehand, thus the view is not at the bottom
                 self.update_autoscroll_state();
                 self.update_logs_scrollbar_state();
                 Ok(())

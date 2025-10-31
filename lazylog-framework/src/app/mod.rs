@@ -273,12 +273,12 @@ impl App {
 // Utility methods
 // ============================================================================
 impl App {
-    fn to_underlying_index(total: usize, visual_index: usize) -> usize {
-        total.saturating_sub(1).saturating_sub(visual_index)
+    fn to_underlying_index(_total: usize, visual_index: usize) -> usize {
+        visual_index
     }
 
-    fn to_visual_index(total: usize, underlying_index: usize) -> usize {
-        total.saturating_sub(1).saturating_sub(underlying_index)
+    fn to_visual_index(_total: usize, underlying_index: usize) -> usize {
+        underlying_index
     }
 
     fn is_log_block_focused(&self) -> Result<bool> {
@@ -301,7 +301,6 @@ impl App {
             return Ok(());
         }
 
-        let old_items_count = self.displaying_logs.len();
         let previous_uuid = self.selected_log_uuid;
         let previous_scroll_pos = Some(self.logs_block.get_scroll_position());
 
@@ -322,23 +321,40 @@ impl App {
         if previous_uuid.is_some() {
             self.update_selection_by_uuid();
         } else if self.autoscroll {
-            self.displaying_logs.select_first();
+            self.displaying_logs.select_last();
             self.update_selected_uuid();
         }
 
         {
             let new_items_count = self.displaying_logs.len();
-            let items_added = new_items_count.saturating_sub(old_items_count);
 
             if self.autoscroll {
-                self.logs_block.set_scroll_position(0);
-            } else if let Some(prev) = previous_scroll_pos {
-                // newest is at visual index 0, adding items pushes existing content down;
-                // keep the same lines visible by shifting the top by items_added
-                let new_scroll_pos = prev.saturating_add(items_added);
-                let max_top = new_items_count.saturating_sub(1);
-                self.logs_block
-                    .set_scroll_position(new_scroll_pos.min(max_top));
+                // scroll to bottom (stop when last item is fully displayed)
+                let viewport_height = if let Some(area) = self.last_logs_area {
+                    let is_focused = self.is_log_block_focused().unwrap_or(false);
+                    let [main_content_area, _] =
+                        Layout::horizontal([Constraint::Fill(1), Constraint::Length(1)])
+                            .margin(0)
+                            .areas(area);
+
+                    let [content_area, _] =
+                        Layout::vertical([Constraint::Fill(1), Constraint::Length(1)])
+                            .margin(0)
+                            .areas(main_content_area);
+
+                    let inner_area = self.logs_block.get_content_rect(content_area, is_focused);
+                    inner_area.height as usize
+                } else {
+                    1 // fallback if area not yet rendered
+                };
+
+                let max_scroll = new_items_count.saturating_sub(viewport_height);
+                self.logs_block.set_scroll_position(max_scroll);
+            } else if previous_scroll_pos.is_some() {
+                // oldest is at visual index 0, newest at end;
+                // adding items doesn't change visual position of existing items,
+                // so scroll position stays the same
+                // (scroll position is already set correctly, no adjustment needed)
             }
 
             self.logs_block.set_lines_count(new_items_count);

@@ -112,7 +112,7 @@ impl App {
         let help_text = vec![
             Line::from("Navigation:".bold()),
             Line::from("  j/k/↑/↓  - Move to prev/next log"),
-            Line::from("  g        - Jump to top"),
+            Line::from("  G        - Jump to bottom (newest log)"),
             Line::from("  space    - Make selected log visible in view"),
             Line::from(""),
             Line::from("Actions:".bold()),
@@ -407,9 +407,8 @@ impl App {
         let mut content_lines = Vec::with_capacity(end.saturating_sub(start));
 
         for i in start..end {
-            let item_idx = total_lines.saturating_sub(1).saturating_sub(i);
             // get the index into raw_logs from displaying_logs
-            let raw_idx = self.displaying_logs.get(item_idx).unwrap();
+            let raw_idx = self.displaying_logs.get(i).unwrap();
             let log_item = &self.raw_logs[raw_idx];
 
             let detail_text = self.parser.format_preview(log_item, self.detail_level);
@@ -530,8 +529,7 @@ impl App {
         let (indices, state) = (&self.displaying_logs.indices, &self.displaying_logs.state);
 
         if let Some(i) = state.selected() {
-            let reversed_index = indices.len().saturating_sub(1).saturating_sub(i);
-            let raw_idx = indices[reversed_index];
+            let raw_idx = indices[i];
             let item = &self.raw_logs[raw_idx];
 
             if self.prev_selected_log_id != Some(item.id) {
@@ -551,8 +549,7 @@ impl App {
             let (indices, state) = (&self.displaying_logs.indices, &self.displaying_logs.state);
 
             if let Some(i) = state.selected() {
-                let reversed_index = indices.len().saturating_sub(1).saturating_sub(i);
-                let raw_idx = indices[reversed_index];
+                let raw_idx = indices[i];
                 let item = &self.raw_logs[raw_idx];
 
                 Some((

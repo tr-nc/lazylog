@@ -116,4 +116,13 @@ impl LogList {
             self.state.select(Some(0));
         }
     }
+
+    pub fn select_last(&mut self) {
+        if self.indices.is_empty() {
+            self.state.select(None);
+        } else {
+            let last_idx = self.indices.len() - 1;
+            self.state.select(Some(last_idx));
+        }
+    }
 }

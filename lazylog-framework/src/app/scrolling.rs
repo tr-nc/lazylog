@@ -33,9 +33,31 @@ impl App {
             let lines_count = self.logs_block.get_lines_count();
             let current_position = self.logs_block.get_scroll_position();
 
+            // calculate viewport height to determine max scroll position
+            let viewport_height = if let Some(area) = self.last_logs_area {
+                let is_focused = self.is_log_block_focused().unwrap_or(false);
+                let [main_content_area, _] =
+                    Layout::horizontal([Constraint::Fill(1), Constraint::Length(1)])
+                        .margin(0)
+                        .areas(area);
+
+                let [content_area, _] =
+                    Layout::vertical([Constraint::Fill(1), Constraint::Length(1)])
+                        .margin(0)
+                        .areas(main_content_area);
+
+                let inner_area = self.logs_block.get_content_rect(content_area, is_focused);
+                inner_area.height as usize
+            } else {
+                1 // fallback if area not yet rendered
+            };
+
+            // max scroll position: stop when last item is fully displayed
+            let max_scroll = lines_count.saturating_sub(viewport_height);
+
             let new_position = if move_down {
-                if current_position >= lines_count.saturating_sub(1) {
-                    current_position // Stay at bottom
+                if current_position >= max_scroll {
+                    current_position // stop when last item is displayed
                 } else {
                     current_position.saturating_add(1)
                 }
