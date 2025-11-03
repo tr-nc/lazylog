@@ -298,6 +298,9 @@ impl App {
     pub(super) fn render_logs(&mut self, area: Rect, buf: &mut Buffer) -> Result<()> {
         self.last_logs_area = Some(area);
 
+        // clamp scroll position with fresh area (handles resize)
+        let _ = self.clamp_logs_scroll_position();
+
         let [content_area, scrollbar_area] = Layout::horizontal([
             Constraint::Fill(1),   // Main content takes most space
             Constraint::Length(1), // Scrollbar is 1 character wide
@@ -381,15 +384,7 @@ impl App {
         let content_width = inner_area.width as usize;
 
         let logs_block = &mut self.logs_block;
-        let mut scroll_position = logs_block.get_scroll_position();
-        let max_top = total_lines.saturating_sub(1);
-        if total_lines == 0 {
-            scroll_position = 0;
-            logs_block.set_scroll_position(0);
-        } else if scroll_position > max_top {
-            scroll_position = max_top;
-            logs_block.set_scroll_position(scroll_position);
-        }
+        let scroll_position = logs_block.get_scroll_position();
 
         let mut selection_changed = false;
         if let Some(click_row) = clicked_row {

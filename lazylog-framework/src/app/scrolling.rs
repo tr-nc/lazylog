@@ -3,6 +3,80 @@ use anyhow::Result;
 use ratatui::prelude::*;
 
 impl App {
+    /// Clamps the logs block scroll position to prevent scrolling out of bounds
+    /// When viewport height changes, preserves the bottom-most visible item position
+    pub(super) fn clamp_logs_scroll_position(&mut self) -> Result<()> {
+        let lines_count = self.logs_block.get_lines_count();
+        let current_position = self.logs_block.get_scroll_position();
+
+        // calculate viewport height to determine max scroll position
+        let viewport_height = if let Some(area) = self.last_logs_area {
+            let is_focused = self.is_log_block_focused().unwrap_or(false);
+            let [main_content_area, _] =
+                Layout::horizontal([Constraint::Fill(1), Constraint::Length(1)])
+                    .margin(0)
+                    .areas(area);
+
+            let [content_area, _] = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)])
+                .margin(0)
+                .areas(main_content_area);
+
+            let inner_area = self.logs_block.get_content_rect(content_area, is_focused);
+            inner_area.height as usize
+        } else {
+            1 // fallback if area not yet rendered
+        };
+
+        // detect viewport height change and preserve bottom item position
+        let adjusted_position = if let Some(prev_height) = self.last_logs_viewport_height {
+            if prev_height != viewport_height {
+                // viewport height changed - calculate which item was at the bottom
+                let prev_bottom_item = current_position
+                    .saturating_add(prev_height)
+                    .saturating_sub(1)
+                    .min(lines_count.saturating_sub(1));
+
+                // adjust scroll position to keep that item at the bottom
+                let new_position = prev_bottom_item
+                    .saturating_add(1)
+                    .saturating_sub(viewport_height);
+
+                log::debug!(
+                    "Viewport height changed: {} -> {}, adjusting scroll: {} -> {} (preserving bottom item: {})",
+                    prev_height,
+                    viewport_height,
+                    current_position,
+                    new_position,
+                    prev_bottom_item
+                );
+
+                new_position
+            } else {
+                current_position
+            }
+        } else {
+            current_position
+        };
+
+        // update stored viewport height
+        self.last_logs_viewport_height = Some(viewport_height);
+
+        // max scroll position: stop when last item is fully displayed
+        let max_scroll = lines_count.saturating_sub(viewport_height);
+
+        // clamp adjusted position to valid range
+        let clamped_position = adjusted_position.min(max_scroll);
+
+        if clamped_position != current_position {
+            self.logs_block.set_scroll_position(clamped_position);
+        }
+
+        self.logs_block
+            .update_scrollbar_state(lines_count, Some(clamped_position));
+
+        Ok(())
+    }
+
     pub(super) fn handle_log_item_scrolling(
         &mut self,
         move_next: bool,
@@ -29,46 +103,44 @@ impl App {
     }
 
     pub(super) fn handle_logs_view_scrolling(&mut self, move_down: bool) -> Result<()> {
-        {
-            let lines_count = self.logs_block.get_lines_count();
-            let current_position = self.logs_block.get_scroll_position();
+        let lines_count = self.logs_block.get_lines_count();
+        let current_position = self.logs_block.get_scroll_position();
 
-            // calculate viewport height to determine max scroll position
-            let viewport_height = if let Some(area) = self.last_logs_area {
-                let is_focused = self.is_log_block_focused().unwrap_or(false);
-                let [main_content_area, _] =
-                    Layout::horizontal([Constraint::Fill(1), Constraint::Length(1)])
-                        .margin(0)
-                        .areas(area);
+        // calculate viewport height to determine max scroll position
+        let viewport_height = if let Some(area) = self.last_logs_area {
+            let is_focused = self.is_log_block_focused().unwrap_or(false);
+            let [main_content_area, _] =
+                Layout::horizontal([Constraint::Fill(1), Constraint::Length(1)])
+                    .margin(0)
+                    .areas(area);
 
-                let [content_area, _] =
-                    Layout::vertical([Constraint::Fill(1), Constraint::Length(1)])
-                        .margin(0)
-                        .areas(main_content_area);
+            let [content_area, _] = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)])
+                .margin(0)
+                .areas(main_content_area);
 
-                let inner_area = self.logs_block.get_content_rect(content_area, is_focused);
-                inner_area.height as usize
+            let inner_area = self.logs_block.get_content_rect(content_area, is_focused);
+            inner_area.height as usize
+        } else {
+            1 // fallback if area not yet rendered
+        };
+
+        // max scroll position: stop when last item is fully displayed
+        let max_scroll = lines_count.saturating_sub(viewport_height);
+
+        let new_position = if move_down {
+            if current_position >= max_scroll {
+                current_position // stop when last item is displayed
             } else {
-                1 // fallback if area not yet rendered
-            };
+                current_position.saturating_add(1)
+            }
+        } else {
+            current_position.saturating_sub(1)
+        };
 
-            // max scroll position: stop when last item is fully displayed
-            let max_scroll = lines_count.saturating_sub(viewport_height);
+        self.logs_block.set_scroll_position(new_position);
 
-            let new_position = if move_down {
-                if current_position >= max_scroll {
-                    current_position // stop when last item is displayed
-                } else {
-                    current_position.saturating_add(1)
-                }
-            } else {
-                current_position.saturating_sub(1)
-            };
-
-            self.logs_block.set_scroll_position(new_position);
-            self.logs_block
-                .update_scrollbar_state(lines_count, Some(new_position));
-        }
+        // use the clamping method to ensure bounds are respected
+        self.clamp_logs_scroll_position()?;
 
         Ok(())
     }

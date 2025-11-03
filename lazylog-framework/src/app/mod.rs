@@ -108,11 +108,12 @@ struct App {
     last_logs_area: Option<Rect>, // Store the last rendered logs area for selection visibility
     last_details_area: Option<Rect>, // Store the last rendered details area
     last_debug_area: Option<Rect>, // Store the last rendered debug area
-    text_wrapping_enabled: bool,  // Whether text wrapping is enabled (default false)
-    show_debug_logs: bool,        // Whether to show the debug logs block
-    show_help_popup: bool,        // Whether to show the help popup
-    display_event: Option<DisplayEvent>, // Temporary event to display in footer
-    prev_hard_focused_block_id: uuid::Uuid, // Track previous hard focus to detect changes
+    last_logs_viewport_height: Option<usize>, // Track viewport height to preserve bottom item on resize
+    text_wrapping_enabled: bool,              // Whether text wrapping is enabled (default false)
+    show_debug_logs: bool,                    // Whether to show the debug logs block
+    show_help_popup: bool,                    // Whether to show the help popup
+    display_event: Option<DisplayEvent>,      // Temporary event to display in footer
+    prev_hard_focused_block_id: uuid::Uuid,   // Track previous hard focus to detect changes
 
     mouse_event: Option<MouseEvent>,
 }
@@ -192,6 +193,7 @@ impl App {
             last_logs_area: None,
             last_details_area: None,
             last_debug_area: None,
+            last_logs_viewport_height: None,
             text_wrapping_enabled: true,
             show_debug_logs: desc.show_debug_logs,
             show_help_popup: false,
