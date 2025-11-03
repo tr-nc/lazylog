@@ -112,7 +112,7 @@ impl App {
         let help_text = vec![
             Line::from("Navigation:".bold()),
             Line::from("  j/k/↑/↓  - Move to prev/next log"),
-            Line::from("  G        - Jump to bottom (newest log)"),
+            Line::from("  d        - Jump to bottom (latest log)"),
             Line::from("  space    - Make selected log visible in view"),
             Line::from(""),
             Line::from("Actions:".bold()),

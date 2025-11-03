@@ -274,7 +274,7 @@ impl App {
 
                 Ok(())
             }
-            KeyCode::Char('d') => {
+            KeyCode::Char('b') => {
                 self.show_debug_logs = !self.show_debug_logs;
                 log::debug!("Debug logs visibility toggled: {}", self.show_debug_logs);
                 Ok(())
@@ -297,7 +297,7 @@ impl App {
                 self.after_selection_change()?;
                 Ok(())
             }
-            KeyCode::Char('G') => {
+            KeyCode::Char('d') => {
                 // select the last log item (go to bottom - newest)
                 self.displaying_logs.select_last();
                 self.update_selected_uuid();
