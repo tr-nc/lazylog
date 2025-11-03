@@ -474,7 +474,11 @@ impl App {
 
         let logs_block = &mut self.logs_block;
         logs_block.set_lines_count(total_lines);
-        logs_block.update_scrollbar_state(total_lines, Some(scroll_position));
+
+        // this remapping is because the scrolling behavior of the LOGS block cannot exceed the last row
+        // that is, the last row is can only be scrolled to the bottom, not any further. unlike other blocks
+        let scrollbar_content_length = total_lines.saturating_sub(visible_height);
+        logs_block.update_scrollbar_state(scrollbar_content_length, Some(scroll_position));
 
         let block = self.logs_block.build(is_log_focused);
 
