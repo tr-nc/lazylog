@@ -687,7 +687,7 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
 name = "lazylog"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "crossterm 0.29.0",
  "dirs",
@@ -699,7 +699,7 @@ dependencies = [
 
 [[package]]
 name = "lazylog-dyeh"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -715,7 +715,7 @@ dependencies = [
 
 [[package]]
 name = "lazylog-framework"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "arboard",
@@ -737,7 +737,7 @@ dependencies = [
 
 [[package]]
 name = "lazylog-ios"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -750,7 +750,7 @@ dependencies = [
 
 [[package]]
 name = "lazylog-parser"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "lazy_static",
  "lazylog-framework",
