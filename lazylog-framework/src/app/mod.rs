@@ -322,9 +322,6 @@ impl App {
 
         if previous_uuid.is_some() {
             self.update_selection_by_uuid();
-        } else if self.autoscroll {
-            self.displaying_logs.select_last();
-            self.update_selected_uuid();
         }
 
         {
@@ -396,14 +393,10 @@ impl App {
             self.update_selection_by_uuid();
 
             // if the previously selected item is no longer in the filtered list,
-            // select the first available item
-            if self.selected_log_uuid.is_none() && !self.displaying_logs.is_empty() {
-                self.displaying_logs.select_first();
-                self.update_selected_uuid();
+            // clear selection
+            if self.selected_log_uuid.is_none() {
+                self.displaying_logs.state.select(None);
             }
-        } else if self.autoscroll {
-            self.displaying_logs.select_first();
-            self.update_selected_uuid();
         }
 
         {
