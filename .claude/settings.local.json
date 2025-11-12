@@ -18,7 +18,8 @@
       "WebFetch(domain:docs.rs)",
       "Bash(mkdir:*)",
       "Bash(tree:*)",
-      "Read(//Users/bytedance/code/idevice-test/**)"
+      "Read(//Users/bytedance/code/idevice-test/**)",
+      "Bash(./target/release/lazylog:*)"
     ],
     "deny": [],
     "ask": []

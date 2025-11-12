@@ -18,6 +18,7 @@ use ratatui::{
 use std::env;
 use std::io;
 use std::panic;
+use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -29,6 +30,27 @@ fn print_usage() {
     eprintln!("  --ios-full, -i     Use iOS full parser");
     eprintln!("  --dyeh, -dy        Use DYEH file-based log provider (default)");
     eprintln!("  --help, -h         Print this help message");
+}
+
+fn check_idevicesyslog_available() -> io::Result<()> {
+    // try to execute idevicesyslog --version to check if it's available
+    match Command::new("idevicesyslog").arg("--version").output() {
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "Error: 'idevicesyslog' not found in PATH.\n\
+                 \n\
+                 To use iOS log providers (-i or -ie), you need to install libimobiledevice.\n\
+                 \n\
+                 Installation instructions:\n\
+                 - macOS: brew install libimobiledevice\n\
+                 - Linux: apt-get install libimobiledevice-utils (Ubuntu/Debian)\n\
+                 - Linux: yum install libimobiledevice (CentOS/RHEL)\n\
+                 \n\
+                 For more information, visit: https://libimobiledevice.org/",
+        )),
+        Err(e) => Err(e),
+    }
 }
 
 enum UsageOptions {
@@ -75,6 +97,14 @@ fn main() -> io::Result<()> {
     if let UsageOptions::Help = usage_option {
         print_usage();
         return Ok(());
+    }
+
+    // check if idevicesyslog is available for iOS options
+    if matches!(
+        usage_option,
+        UsageOptions::IosEffect | UsageOptions::IosFull
+    ) {
+        check_idevicesyslog_available()?;
     }
 
     let mut terminal = setup_terminal()?;
