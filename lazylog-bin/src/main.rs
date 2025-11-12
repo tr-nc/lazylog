@@ -28,7 +28,7 @@ fn print_usage() {
     eprintln!();
     eprintln!("Options:");
     eprintln!("  --ios-effect, -ie       Use iOS effect parser");
-    eprintln!("  --ios-full, -i          Use iOS full parser");
+    eprintln!("  --ios, -i               Use iOS full parser");
     eprintln!("  --android, -a           Use Android adb logcat provider");
     eprintln!("  --android-effect, -ae   Use Android effect parser");
     eprintln!("  --dyeh, -dy             Use DYEH file-based log provider (default)");
@@ -94,7 +94,7 @@ impl UsageOptions {
             0 => Ok(Self::None),
             1 => match args[0].as_str() {
                 "--ios-effect" | "-ie" => Ok(Self::IosEffect),
-                "--ios-full" | "-i" => Ok(Self::IosFull),
+                "--ios" | "-i" => Ok(Self::IosFull),
                 "--android" | "-a" => Ok(Self::Android),
                 "--android-effect" | "-ae" => Ok(Self::AndroidEffect),
                 "--dyeh" | "-dy" => Ok(Self::Dyeh),
