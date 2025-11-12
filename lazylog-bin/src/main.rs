@@ -25,9 +25,9 @@ fn print_usage() {
     eprintln!("Usage: lazylog [OPTIONS]");
     eprintln!();
     eprintln!("Options:");
-    eprintln!("  --ios-effect       Use iOS effect parser");
-    eprintln!("  --ios-full         Use iOS full parser");
-    eprintln!("  --dyeh             Use DYEH file-based log provider");
+    eprintln!("  --ios-effect, -ie  Use iOS effect parser");
+    eprintln!("  --ios-full, -i     Use iOS full parser");
+    eprintln!("  --dyeh, -dy        Use DYEH file-based log provider (default)");
     eprintln!("  --help, -h         Print this help message");
 }
 
@@ -44,9 +44,9 @@ impl UsageOptions {
         match args.len() {
             0 => Ok(Self::None),
             1 => match args[0].as_str() {
-                "--ios-effect" => Ok(Self::IosEffect),
-                "--ios-full" => Ok(Self::IosFull),
-                "--dyeh" => Ok(Self::Dyeh),
+                "--ios-effect" | "-ie" => Ok(Self::IosEffect),
+                "--ios-full" | "-i" => Ok(Self::IosFull),
+                "--dyeh" | "-dy" => Ok(Self::Dyeh),
                 "--help" | "-h" => Ok(Self::Help),
                 _ => {
                     print_usage();
