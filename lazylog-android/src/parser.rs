@@ -1,4 +1,13 @@
+use lazy_static::lazy_static;
 use lazylog_framework::provider::{LogDetailLevel, LogItem, LogParser};
+use lazylog_parser::process_delta;
+use regex::Regex;
+
+lazy_static! {
+    // for checking if log contains structured format
+    static ref STRUCTURED_MARKER_RE: Regex =
+        Regex::new(r"## \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}").unwrap();
+}
 
 /// Android logcat parser
 pub struct AndroidParser;
@@ -120,5 +129,71 @@ impl LogParser for AndroidParser {
 
     fn max_detail_level(&self) -> LogDetailLevel {
         3 // 4 levels: 0=content, 1=time, 2=time+tag, 3=all
+    }
+}
+
+/// structured Android log parser - filters for structured logs and delegates to lazylog-parser
+pub struct AndroidEffectParser {
+    simple_parser: AndroidParser,
+}
+
+impl AndroidEffectParser {
+    pub fn new() -> Self {
+        Self {
+            simple_parser: AndroidParser::new(),
+        }
+    }
+
+    /// strip Android logcat wrapper to extract inner structured content
+    /// Input:  "MM-DD HH:MM:SS.mmm  PID  TID LEVEL TAG: [content...]"
+    /// Output: "[content...]"
+    fn strip_android_wrapper(android_log: &str) -> Option<&str> {
+        android_log.find(": ").map(|idx| &android_log[idx + 2..])
+    }
+}
+
+impl Default for AndroidEffectParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl LogParser for AndroidEffectParser {
+    fn parse(&self, raw_log: &str) -> Option<LogItem> {
+        // check if this log has structured marker
+        if !STRUCTURED_MARKER_RE.is_match(raw_log) {
+            // no structured marker, filter out this log
+            return None;
+        }
+
+        // try to strip Android wrapper
+        if let Some(inner_content) = Self::strip_android_wrapper(raw_log) {
+            // parse structured content using lazylog-parser
+            let log_items = process_delta(inner_content);
+
+            // return first parsed item if available
+            if let Some(item) = log_items.into_iter().next() {
+                return Some(item);
+            }
+        }
+
+        // if parsing failed, filter out
+        None
+    }
+
+    fn format_preview(&self, item: &LogItem, detail_level: LogDetailLevel) -> String {
+        self.simple_parser.format_preview(item, detail_level)
+    }
+
+    fn get_searchable_text(&self, item: &LogItem, detail_level: LogDetailLevel) -> String {
+        self.simple_parser.get_searchable_text(item, detail_level)
+    }
+
+    fn make_yank_content(&self, item: &LogItem) -> String {
+        self.simple_parser.make_yank_content(item)
+    }
+
+    fn max_detail_level(&self) -> LogDetailLevel {
+        self.simple_parser.max_detail_level()
     }
 }

@@ -7,6 +7,7 @@ authors.workspace = true
 [dependencies]
 # framework
 lazylog-framework = { path = "../lazylog-framework" }
+lazylog-parser = { path = "../lazylog-parser" }
 
 # workspace dependencies
 anyhow.workspace = true

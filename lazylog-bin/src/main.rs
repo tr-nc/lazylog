@@ -1,5 +1,5 @@
 use crossterm::event;
-use lazylog_android::{AndroidLogProvider, AndroidParser};
+use lazylog_android::{AndroidEffectParser, AndroidLogProvider, AndroidParser};
 use lazylog_dyeh::{DyehLogProvider, DyehParser};
 use lazylog_framework::start_with_provider;
 use lazylog_ios::{IosEffectParser, IosFullParser, IosLogProvider};
@@ -27,11 +27,12 @@ fn print_usage() {
     eprintln!("Usage: lazylog [OPTIONS]");
     eprintln!();
     eprintln!("Options:");
-    eprintln!("  --ios-effect, -ie  Use iOS effect parser");
-    eprintln!("  --ios-full, -i     Use iOS full parser");
-    eprintln!("  --android, -a      Use Android adb logcat provider");
-    eprintln!("  --dyeh, -dy        Use DYEH file-based log provider (default)");
-    eprintln!("  --help, -h         Print this help message");
+    eprintln!("  --ios-effect, -ie       Use iOS effect parser");
+    eprintln!("  --ios-full, -i          Use iOS full parser");
+    eprintln!("  --android, -a           Use Android adb logcat provider");
+    eprintln!("  --android-effect, -ae   Use Android effect parser");
+    eprintln!("  --dyeh, -dy             Use DYEH file-based log provider (default)");
+    eprintln!("  --help, -h              Print this help message");
 }
 
 fn check_idevicesyslog_available() -> io::Result<()> {
@@ -81,6 +82,7 @@ enum UsageOptions {
     IosEffect,
     IosFull,
     Android,
+    AndroidEffect,
     Dyeh,
     Help,
     None, // default when no args provided
@@ -94,6 +96,7 @@ impl UsageOptions {
                 "--ios-effect" | "-ie" => Ok(Self::IosEffect),
                 "--ios-full" | "-i" => Ok(Self::IosFull),
                 "--android" | "-a" => Ok(Self::Android),
+                "--android-effect" | "-ae" => Ok(Self::AndroidEffect),
                 "--dyeh" | "-dy" => Ok(Self::Dyeh),
                 "--help" | "-h" => Ok(Self::Help),
                 _ => {
@@ -137,7 +140,10 @@ fn main() -> io::Result<()> {
     }
 
     // check if adb is available for Android option
-    if matches!(usage_option, UsageOptions::Android) {
+    if matches!(
+        usage_option,
+        UsageOptions::Android | UsageOptions::AndroidEffect
+    ) {
         if let Err(e) = check_adb_available() {
             eprintln!("{}", e);
             std::process::exit(1);
@@ -171,6 +177,12 @@ fn main() -> io::Result<()> {
             let provider = AndroidLogProvider::new();
             let parser: Arc<dyn lazylog_framework::provider::LogParser> =
                 Arc::new(AndroidParser::new());
+            start_with_provider(&mut terminal, provider, parser)
+        }
+        UsageOptions::AndroidEffect => {
+            let provider = AndroidLogProvider::new();
+            let parser: Arc<dyn lazylog_framework::provider::LogParser> =
+                Arc::new(AndroidEffectParser::new());
             start_with_provider(&mut terminal, provider, parser)
         }
         UsageOptions::Dyeh | UsageOptions::None => {

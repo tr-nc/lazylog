@@ -705,6 +705,7 @@ dependencies = [
  "anyhow",
  "lazy_static",
  "lazylog-framework",
+ "lazylog-parser",
  "log",
  "regex",
  "tokio",
