@@ -1,0 +1,18 @@
+[package]
+name = "lazylog-android"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+# framework
+lazylog-framework = { path = "../lazylog-framework" }
+
+# workspace dependencies
+anyhow.workspace = true
+lazy_static.workspace = true
+log.workspace = true
+regex.workspace = true
+
+# async runtime for spawning command-line tools
+tokio = { version = "1", features = ["full"] }

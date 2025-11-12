@@ -5,6 +5,7 @@ members = [
     "lazylog-parser",
     "lazylog-dyeh",
     "lazylog-ios",
+    "lazylog-android",
     "lazylog-bin",
 ]
 

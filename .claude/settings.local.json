@@ -19,7 +19,8 @@
       "Bash(mkdir:*)",
       "Bash(tree:*)",
       "Read(//Users/bytedance/code/idevice-test/**)",
-      "Bash(./target/release/lazylog:*)"
+      "Bash(./target/release/lazylog:*)",
+      "Bash(./target/debug/lazylog:*)"
     ],
     "deny": [],
     "ask": []

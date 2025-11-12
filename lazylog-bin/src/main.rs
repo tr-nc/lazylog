@@ -1,4 +1,5 @@
 use crossterm::event;
+use lazylog_android::{AndroidLogProvider, AndroidParser};
 use lazylog_dyeh::{DyehLogProvider, DyehParser};
 use lazylog_framework::start_with_provider;
 use lazylog_ios::{IosEffectParser, IosFullParser, IosLogProvider};
@@ -28,6 +29,7 @@ fn print_usage() {
     eprintln!("Options:");
     eprintln!("  --ios-effect, -ie  Use iOS effect parser");
     eprintln!("  --ios-full, -i     Use iOS full parser");
+    eprintln!("  --android, -a      Use Android adb logcat provider");
     eprintln!("  --dyeh, -dy        Use DYEH file-based log provider (default)");
     eprintln!("  --help, -h         Print this help message");
 }
@@ -53,9 +55,32 @@ fn check_idevicesyslog_available() -> io::Result<()> {
     }
 }
 
+fn check_adb_available() -> io::Result<()> {
+    // try to execute adb version to check if it's available
+    match Command::new("adb").arg("version").output() {
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "Error: 'adb' not found in PATH.\n\
+                 \n\
+                 To use Android log provider (-a or --android), you need to install Android SDK Platform-Tools.\n\
+                 \n\
+                 Installation instructions:\n\
+                 - macOS: brew install android-platform-tools\n\
+                 - Linux: apt-get install android-tools-adb (Ubuntu/Debian)\n\
+                 - Linux: yum install android-tools (CentOS/RHEL)\n\
+                 - Windows: Download from https://developer.android.com/studio/releases/platform-tools\n\
+                 \n\
+                 For more information, visit: https://developer.android.com/studio/command-line/adb",
+        )),
+        Err(e) => Err(e),
+    }
+}
+
 enum UsageOptions {
     IosEffect,
     IosFull,
+    Android,
     Dyeh,
     Help,
     None, // default when no args provided
@@ -68,6 +93,7 @@ impl UsageOptions {
             1 => match args[0].as_str() {
                 "--ios-effect" | "-ie" => Ok(Self::IosEffect),
                 "--ios-full" | "-i" => Ok(Self::IosFull),
+                "--android" | "-a" => Ok(Self::Android),
                 "--dyeh" | "-dy" => Ok(Self::Dyeh),
                 "--help" | "-h" => Ok(Self::Help),
                 _ => {
@@ -110,6 +136,14 @@ fn main() -> io::Result<()> {
         }
     }
 
+    // check if adb is available for Android option
+    if matches!(usage_option, UsageOptions::Android) {
+        if let Err(e) = check_adb_available() {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        }
+    }
+
     let mut terminal = setup_terminal()?;
 
     // Ensure we restore the terminal on panic
@@ -131,6 +165,12 @@ fn main() -> io::Result<()> {
             let provider = IosLogProvider::new();
             let parser: Arc<dyn lazylog_framework::provider::LogParser> =
                 Arc::new(IosFullParser::new());
+            start_with_provider(&mut terminal, provider, parser)
+        }
+        UsageOptions::Android => {
+            let provider = AndroidLogProvider::new();
+            let parser: Arc<dyn lazylog_framework::provider::LogParser> =
+                Arc::new(AndroidParser::new());
             start_with_provider(&mut terminal, provider, parser)
         }
         UsageOptions::Dyeh | UsageOptions::None => {

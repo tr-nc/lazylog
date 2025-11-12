@@ -691,10 +691,23 @@ version = "0.2.4"
 dependencies = [
  "crossterm 0.29.0",
  "dirs",
+ "lazylog-android",
  "lazylog-dyeh",
  "lazylog-framework",
  "lazylog-ios",
  "ratatui",
+]
+
+[[package]]
+name = "lazylog-android"
+version = "0.2.4"
+dependencies = [
+ "anyhow",
+ "lazy_static",
+ "lazylog-framework",
+ "log",
+ "regex",
+ "tokio",
 ]
 
 [[package]]

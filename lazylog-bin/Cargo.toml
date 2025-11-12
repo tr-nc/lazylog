@@ -14,6 +14,7 @@ path = "src/main.rs"
 lazylog-framework = { path = "../lazylog-framework" }
 lazylog-dyeh = { path = "../lazylog-dyeh" }
 lazylog-ios = { path = "../lazylog-ios" }
+lazylog-android = { path = "../lazylog-android" }
 crossterm.workspace = true
 dirs.workspace = true
 ratatui.workspace = true
