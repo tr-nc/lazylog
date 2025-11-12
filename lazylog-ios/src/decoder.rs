@@ -1,4 +1,5 @@
 /// Decodes a vis-encoded syslog string to a UTF-8 representation.
+/// https://gist.github.com/cbracken/d88a84370fdde9cbcfd810d944c8f540
 ///
 /// Apple's syslog logs are encoded in 7-bit form. Input bytes are encoded as follows:
 /// 1. 0x00 to 0x19: non-printing range. Some ignored, some encoded as <...>.
