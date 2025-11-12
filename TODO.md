@@ -53,3 +53,20 @@ Oct 29 11:28:37 EffectCam[UIKitCore](6923) <Notice>: Ending background task with
 Oct 29 11:34:10 backboardd[CoreBrightness](68) <Notice>: Transition in AOD done
 Oct 29 11:36:09 backboardd[CoreBrightness](68) <Notice>: [Power Assertion] Released=0 (assertionObj=0x0)
 ```
+
+- android
+
+```plaintext
+11-12 18:13:06.542  2006  4807 I SDM     : HWCSession::ProcessCWBStatus: CWB queue is empty. display_index: 0
+11-12 18:13:06.543  3525  4761 D libsensor-parseRGB: the value of RGB [1346.480926 1450.355615 1017.965135]
+11-12 18:13:06.624  2873  5893 D SLM-SRV-SLAService: checktemp temperature = 34806 temperature_average = 34008 isPerformanceMode = false thermal_enable_slm = true
+11-12 18:13:06.686  5628  5628 D ControlCenterHeaderExpandController: onExpansionChanged: progress =  0.0
+11-12 18:13:06.691  5628  5628 D ControlCenterHeaderExpandController: onExpansionChanged: progress =  0.0
+11-12 18:13:06.693  5628  5628 D ControlCenterHeaderExpandController: onExpansionChanged: progress =  0.0
+11-12 18:13:06.726  2006  2739 I vendor.qti.hardware.display.composer-service: FrameNotifyProcess Sensor: notify citsensorservice to trigger cwb
+11-12 18:13:06.727  3525  4760 I libsensor-parseRGB: request dump start for mRequestDisplayId 0
+11-12 18:13:06.727  3525  4760 D vendor.xiaomi.sensor.citsensorservice@2.0-service: handle id:10 wxh:1280x2400 uwxuh:1080x2400 size: 9216000 fd:17 fd_meta:18 flags:0x228 usage:0x33  format:0x3 layer_count: 1 reserved_size = 0
+11-12 18:13:06.728  2006  2697 W SDM     : HWCSession::GetDisplayIndex: Display index not found for display 1.
+11-12 18:13:06.728  2006  2697 W SDM     : HWCSession::GetDisplayIndex: Display index not found for display 3.
+11-12 18:13:06.728  2006  2697 D SDM     : HWCSession::SetCWBOutputBuffer: CWB config passed by cwb_client : tappoint 1  CWB_ROI : (591.000000 22.000000 717.000000 148.000000). Display 0
+```
