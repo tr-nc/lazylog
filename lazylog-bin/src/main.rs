@@ -104,7 +104,10 @@ fn main() -> io::Result<()> {
         usage_option,
         UsageOptions::IosEffect | UsageOptions::IosFull
     ) {
-        check_idevicesyslog_available()?;
+        if let Err(e) = check_idevicesyslog_available() {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        }
     }
 
     let mut terminal = setup_terminal()?;
