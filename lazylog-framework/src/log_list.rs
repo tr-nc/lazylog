@@ -17,10 +17,6 @@ impl LogList {
         self.indices.len()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.indices.is_empty()
-    }
-
     pub fn get(&self, idx: usize) -> Option<usize> {
         self.indices.get(idx).copied()
     }
@@ -107,14 +103,6 @@ impl LogList {
             None => 0, // Select first item if nothing is selected
         };
         self.state.select(Some(prev));
-    }
-
-    pub fn select_first(&mut self) {
-        if self.indices.is_empty() {
-            self.state.select(None);
-        } else {
-            self.state.select(Some(0));
-        }
     }
 
     pub fn select_last(&mut self) {
