@@ -27,8 +27,8 @@ fn print_usage() {
     eprintln!("Usage: lazylog [OPTIONS]");
     eprintln!();
     eprintln!("Options:");
-    eprintln!("  --ios-effect, -ie       Use iOS effect parser");
     eprintln!("  --ios, -i               Use iOS full parser");
+    eprintln!("  --ios-effect, -ie       Use iOS effect parser");
     eprintln!("  --android, -a           Use Android adb logcat provider");
     eprintln!("  --android-effect, -ae   Use Android effect parser");
     eprintln!("  --dyeh, -dy             Use DYEH file-based log provider (default)");
