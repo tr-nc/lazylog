@@ -27,11 +27,11 @@ fn print_usage() {
     eprintln!("Usage: lazylog [OPTIONS]");
     eprintln!();
     eprintln!("Options:");
-    eprintln!("  --ios, -i               Use iOS full parser");
-    eprintln!("  --ios-effect, -ie       Use iOS effect parser");
-    eprintln!("  --android, -a           Use Android adb logcat provider");
-    eprintln!("  --android-effect, -ae   Use Android effect parser");
-    eprintln!("  --dyeh, -dy             Use DYEH file-based log provider (default)");
+    eprintln!("  --dyeh, -dy             Use DYEH file-based log provider");
+    eprintln!("  --ios, -i               Use iOS log provider");
+    eprintln!("  --ios-effect, -ie       Use iOS log provider [EFFECT MODE]");
+    eprintln!("  --android, -a           Use Android log provider");
+    eprintln!("  --android-effect, -ae   Use Android log provider [EFFECT MODE]");
     eprintln!("  --help, -h              Print this help message");
 }
 
@@ -85,7 +85,7 @@ enum UsageOptions {
     AndroidEffect,
     Dyeh,
     Help,
-    None, // default when no args provided
+    None, // when no args provided, show help
 }
 
 impl UsageOptions {
@@ -123,7 +123,7 @@ fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().skip(1).collect();
     let usage_option = UsageOptions::from_args(&args)?;
 
-    if let UsageOptions::Help = usage_option {
+    if matches!(usage_option, UsageOptions::Help | UsageOptions::None) {
         print_usage();
         return Ok(());
     }
@@ -185,7 +185,7 @@ fn main() -> io::Result<()> {
                 Arc::new(AndroidEffectParser::new());
             start_with_provider(&mut terminal, provider, parser)
         }
-        UsageOptions::Dyeh | UsageOptions::None => {
+        UsageOptions::Dyeh => {
             if let Some(dir) = dirs::home_dir() {
                 let log_dir_path = dir.join("Library/Application Support/DouyinAR");
                 let provider = DyehLogProvider::new(log_dir_path);
@@ -197,7 +197,7 @@ fn main() -> io::Result<()> {
                 Ok(())
             }
         }
-        UsageOptions::Help => unreachable!(),
+        UsageOptions::Help | UsageOptions::None => unreachable!(),
     };
 
     // Always restore terminal before printing or exiting
