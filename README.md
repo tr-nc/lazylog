@@ -23,7 +23,7 @@ Lazylog provides instant log file access with structured parsing, smooth scrolli
 ### Build from source
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/tr-nc/lazylog.git
 cd lazylog
 cargo build --release
 ```
