@@ -47,6 +47,7 @@ cargo run
 | `[`/`]` | Decrease/increase detail level (0-4) |
 | `/` | Enter filter mode |
 | `y` | Yank (copy) current log item to clipboard |
+| `a` | Yank (copy) all displayed logs to clipboard |
 | `c` | Clear all logs |
 | `f` | Fold logs (not implemented) |
 | `q` or `Esc` | Quit |

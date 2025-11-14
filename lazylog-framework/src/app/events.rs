@@ -88,6 +88,41 @@ impl App {
         Ok(())
     }
 
+    pub(super) fn yank_all_displayed_logs(&mut self) -> Result<()> {
+        let indices = &self.displaying_logs.indices;
+
+        if indices.is_empty() {
+            log::debug!("No log items to yank");
+            return Ok(());
+        }
+
+        // collect all displayed log items with blank line separator
+        let mut yank_contents = Vec::new();
+        for &raw_idx in indices.iter() {
+            let item = &self.raw_logs[raw_idx];
+            yank_contents.push(self.parser.make_yank_content(item));
+        }
+
+        let combined_content = yank_contents.join("\n\n");
+
+        let mut clipboard = Clipboard::new()?;
+        clipboard.set_text(&combined_content)?;
+
+        log::debug!(
+            "Copied {} log items ({} chars) to clipboard",
+            yank_contents.len(),
+            combined_content.len()
+        );
+
+        self.set_display_event(
+            format!("{} logs copied to clipboard", yank_contents.len()),
+            Duration::from_millis(DISPLAY_EVENT_DURATION_MS),
+            None, // use default style
+        );
+
+        Ok(())
+    }
+
     pub(super) fn clear_logs(&mut self) {
         self.raw_logs.clear();
         self.filter_engine.reset();
@@ -240,6 +275,12 @@ impl App {
             KeyCode::Char('y') => {
                 if let Err(e) = self.yank_current_log() {
                     log::debug!("Failed to yank log content: {}", e);
+                }
+                Ok(())
+            }
+            KeyCode::Char('a') => {
+                if let Err(e) = self.yank_all_displayed_logs() {
+                    log::debug!("Failed to yank all displayed logs: {}", e);
                 }
                 Ok(())
             }

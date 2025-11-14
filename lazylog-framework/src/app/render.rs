@@ -118,6 +118,7 @@ impl App {
             Line::from("Actions:".bold()),
             Line::from("  /        - Enter filter mode"),
             Line::from("  y        - Copy current log to clipboard"),
+            Line::from("  a        - Copy all displayed logs to clipboard"),
             Line::from("  c        - Clear all logs"),
             Line::from("  w        - Toggle text wrapping"),
             Line::from("  [        - Decrease detail level"),
