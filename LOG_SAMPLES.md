@@ -66,4 +66,5 @@ Oct 29 11:36:09 backboardd[CoreBrightness](68) <Notice>: [Power Assertion] Relea
 11-12 18:13:06.728  2006  2697 W SDM     : HWCSession::GetDisplayIndex: Display index not found for display 1.
 11-12 18:13:06.728  2006  2697 W SDM     : HWCSession::GetDisplayIndex: Display index not found for display 3.
 11-12 18:13:06.728  2006  2697 D SDM     : HWCSession::SetCWBOutputBuffer: CWB config passed by cwb_client : tappoint 1  CWB_ROI : (591.000000 22.000000 717.000000 148.000000). Display 0
+11-14 14:58:08.422 15711 16559 E AE_JSRUNTIME_TAG: ## 2025-11-14 14:58:08 [threadid:4004026160,ConsoleModule.cpp,100] ERROR ## [AE_JSRUNTIME_TAG]'[AmazingProRuntime] onUpdate'
 ```
