@@ -87,19 +87,13 @@ impl App {
             .set_left(left_text)
             .set_mid(mid_text)
             .set_right(right_text)
-            .set_left_fg(theme::select_color_with_default_palette(
-                theme::PaletteIdx::C600,
-            ))
-            .set_right_fg(theme::select_color_with_default_palette(
-                theme::PaletteIdx::C600,
-            ));
+            .set_left_fg(Color::Gray)
+            .set_right_fg(Color::Gray);
 
         if let Some(style) = custom_style {
             status_bar = status_bar.set_style(style);
         } else if self.filter_focused {
-            status_bar = status_bar.set_style(Style::default().bg(
-                theme::select_color_with_default_palette(theme::PaletteIdx::C500),
-            ));
+            status_bar = status_bar.set_style(Style::default().bg(Color::DarkGray));
         }
 
         status_bar.render(area, buf);

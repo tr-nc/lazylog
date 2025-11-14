@@ -1,7 +1,7 @@
 use ratatui::{
     layout::Rect,
     prelude::Stylize,
-    style::{Style, palette},
+    style::{Color, Style},
     symbols::scrollbar,
     widgets::{
         Block, BorderType, Borders, Padding, Scrollbar, ScrollbarOrientation, ScrollbarState,
@@ -62,11 +62,9 @@ impl AppBlock {
             .border_type(BorderType::Rounded);
 
         if focused {
-            block =
-                block.border_style(Style::new().fg(ratatui::style::palette::tailwind::ZINC.c100));
+            block = block.border_style(Style::new().fg(Color::White));
         } else {
-            block =
-                block.border_style(Style::new().fg(ratatui::style::palette::tailwind::ZINC.c600));
+            block = block.border_style(Style::new().fg(Color::Gray));
         }
 
         if let Some(title) = &self.title {
@@ -164,11 +162,7 @@ impl AppBlock {
 
     /// Creates a uniform scrollbar widget with consistent styling
     pub fn create_scrollbar(focused: bool) -> Scrollbar<'static> {
-        let color = if focused {
-            palette::tailwind::ZINC.c100
-        } else {
-            palette::tailwind::ZINC.c600
-        };
+        let color = if focused { Color::White } else { Color::Gray };
 
         Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .symbols(scrollbar::VERTICAL)
@@ -181,11 +175,7 @@ impl AppBlock {
 
     /// Creates a horizontal scrollbar widget with consistent styling
     pub fn create_horizontal_scrollbar(focused: bool) -> Scrollbar<'static> {
-        let color = if focused {
-            palette::tailwind::ZINC.c100
-        } else {
-            palette::tailwind::ZINC.c600
-        };
+        let color = if focused { Color::White } else { Color::Gray };
 
         Scrollbar::new(ScrollbarOrientation::HorizontalBottom)
             .symbols(scrollbar::HORIZONTAL)
@@ -198,11 +188,7 @@ impl AppBlock {
 
     /// Creates a horizontal scrollbar that only shows track (no thumb)
     pub fn create_horizontal_track_only(focused: bool) -> Scrollbar<'static> {
-        let color = if focused {
-            palette::tailwind::ZINC.c100
-        } else {
-            palette::tailwind::ZINC.c600
-        };
+        let color = if focused { Color::White } else { Color::Gray };
 
         Scrollbar::new(ScrollbarOrientation::HorizontalBottom)
             .symbols(scrollbar::HORIZONTAL)
