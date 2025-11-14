@@ -91,4 +91,16 @@ Gallery hdr is disable by thermal.
 
 [ 11-14 15:48:35.131 20387:30427 I/[Effect] ]
 ## 2025-11-14 15:48:35 [tid:30427,AMGText.cpp:885] info ## [AE_TEXT_TAG]Set Text bloom path: 
+
+[ 11-14 15:53:49.156 20387:12953 V/unknown:c ]
+Prepared frame frame 15.
+
+[ 11-14 15:59:08.632 22894:23431 I/NativeImage ]
+[WxImageLoader] Invoke Listener finished, done.
+
+[ 11-14 15:59:08.758  2880: 5525 D/MiuiNetworkPolicy ]
+updateLimit mLimitEnabled=true,enabled=false,mNetworkPriorityMode=1,mThermalForceMode=0
+
+[ 11-14 15:59:09.022  3331: 3331 I/cnss-daemon ]
+nl80211 response handler invoked
 ```

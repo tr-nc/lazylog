@@ -71,15 +71,15 @@ impl LogParser for AndroidParser {
         // extract components:
         // tokens[0] = MM-DD
         // tokens[1] = HH:MM:SS.mmm
-        // tokens[2] = PID:
-        // tokens[3] = TID
-        // tokens[4] = LEVEL/TAG
+        // tokens[2] = PID:TID
+        // tokens[3] = LEVEL/TAG
 
-        let _pid = tokens[2].trim_end_matches(':');
-        let _tid = tokens[3];
+        // split PID:TID if needed
+        let pid_tid = tokens[2];
+        let _pid_tid_parts: Vec<&str> = pid_tid.split(':').collect();
 
         // level/tag is in format "LEVEL/TAG"
-        let level_tag = tokens.get(4).unwrap_or(&"");
+        let level_tag = tokens.get(3).unwrap_or(&"");
         let (level, tag) = if let Some(slash_pos) = level_tag.find('/') {
             let level = &level_tag[..slash_pos];
             let tag = level_tag[slash_pos + 1..].trim();
@@ -228,5 +228,52 @@ impl LogParser for AndroidEffectParser {
 
     fn max_detail_level(&self) -> LogDetailLevel {
         self.simple_parser.max_detail_level()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_android_log_with_empty_tag() {
+        let parser = AndroidParser::new();
+        let raw_log = r#"[ 11-14 15:48:35.135 20387:30427 E/         ]
+## 2025-11-14 15:48:35 [tid:30427,AMGRichTextParser.cpp:861] error ## [AE_TEXT_TAG]GetLetterRangeFromLetterRange, style 1953785196, 'letterRange' param invalid!"#;
+
+        let result = parser.parse(raw_log);
+        assert!(result.is_some());
+
+        let item = result.unwrap();
+        assert_eq!(item.get_metadata("level").unwrap(), "E");
+        assert_eq!(item.get_metadata("tag").unwrap(), "");
+    }
+
+    #[test]
+    fn test_parse_android_log_with_effect_tag_error() {
+        let parser = AndroidParser::new();
+        let raw_log = r#"[ 11-14 15:48:35.135 20387:30427 E/[Effect] ]
+## 2025-11-14 15:48:35 [tid:30427,AMGRichTextParser.cpp:861] error ## [AE_TEXT_TAG]GetLetterRangeFromLetterRange, style 1953785196, 'letterRange' param invalid!"#;
+
+        let result = parser.parse(raw_log);
+        assert!(result.is_some());
+
+        let item = result.unwrap();
+        assert_eq!(item.get_metadata("level").unwrap(), "E");
+        assert_eq!(item.get_metadata("tag").unwrap(), "[Effect]");
+    }
+
+    #[test]
+    fn test_parse_android_log_with_effect_tag_info() {
+        let parser = AndroidParser::new();
+        let raw_log = r#"[ 11-14 15:48:35.131 20387:30427 I/[Effect] ]
+## 2025-11-14 15:48:35 [tid:30427,AMGText.cpp:885] info ## [AE_TEXT_TAG]Set Text bloom path: "#;
+
+        let result = parser.parse(raw_log);
+        assert!(result.is_some());
+
+        let item = result.unwrap();
+        assert_eq!(item.get_metadata("level").unwrap(), "I");
+        assert_eq!(item.get_metadata("tag").unwrap(), "[Effect]");
     }
 }
