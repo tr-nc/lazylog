@@ -4,143 +4,215 @@ A powerful, extensible framework for building terminal-based log viewers with vi
 
 ## Features
 
-- 🚀 **Provider-based architecture** - Pluggable log sources
-- ⌨️ **Vim-like navigation** - j/k, gg/G, Ctrl+d/u, and more
-- 🔄 **Real-time streaming** - Monitor logs as they arrive
-- 🔍 **Filtering** - Dynamic log filtering with `/` search
-- 📊 **Detail levels** - Control information density
-- 🖱️ **Mouse support** - Click and scroll
-- 🎨 **Tailwind colors** - Beautiful, modern UI
-- 📋 **Clipboard integration** - Yank logs with `y`
+- **Provider-based architecture** - Pluggable log sources
+- **Vim-like navigation** - j/k, gg/G, Ctrl+d/u, and more
+- **Real-time streaming** - Monitor logs as they arrive
+- **Filtering** - Dynamic log filtering with `/` search
+- **Detail levels** - Control information density (0-4)
+- **Mouse support** - Click and scroll
+- **Modern UI** - Clean interface with tailwind-inspired colors
+- **Clipboard integration** - Yank logs with `y`
+- **Memory-efficient** - Ring buffer prevents unbounded growth
 
 ## Installation
 
 ```toml
 [dependencies]
-lazylog-framework = "0.1"
+lazylog-framework = "0.3"
 ```
 
 ## Quick Start
 
 ```rust
-use lazylog_framework::{LogProvider, LogItem, start_with_provider};
+use lazylog_framework::{LogProvider, LogParser, LogItem, start_with_provider};
 use anyhow::Result;
+use std::sync::Arc;
 
-// 1. Implement LogProvider for your log source
-struct MyLogProvider {
-    // Your state here
-}
+// 1. implement LogProvider for your log source
+struct MyLogProvider;
 
 impl LogProvider for MyLogProvider {
     fn start(&mut self) -> Result<()> {
-        // Setup resources (open files, connect to streams, etc.)
+        // setup resources (open files, connect to streams, etc.)
         Ok(())
     }
 
     fn stop(&mut self) -> Result<()> {
-        // Cleanup resources
+        // cleanup resources
         Ok(())
     }
 
-    fn poll_logs(&mut self) -> Result<Vec<LogItem>> {
-        // Return new logs since last poll
-        Ok(vec![
-            LogItem::new(
-                "2025-01-15 10:30:00".to_string(),  // time
-                "INFO".to_string(),                 // level
-                "MyApp".to_string(),                // origin
-                "startup".to_string(),              // tag
-                "Application started".to_string(),  // content
-                "Raw log line here".to_string(),    // raw_content
-            )
-        ])
+    fn poll_logs(&mut self) -> Result<Vec<String>> {
+        // return raw log strings since last poll (non-blocking)
+        Ok(vec!["2025-01-15 10:30:00 INFO Application started".to_string()])
     }
 }
 
-// 2. Run the application
+// 2. implement LogParser to format your logs
+struct MyLogParser;
+
+impl LogParser for MyLogParser {
+    fn parse(&self, raw_log: &str) -> Option<LogItem> {
+        // parse raw string into LogItem
+        Some(LogItem::new(raw_log.to_string(), raw_log.to_string()))
+    }
+
+    fn format_preview(&self, item: &LogItem, detail_level: u8) -> String {
+        // format log for display at given detail level
+        match detail_level {
+            0 => item.content.clone(),
+            _ => format!("[{}] {}", item.time, item.content),
+        }
+    }
+
+    fn get_searchable_text(&self, item: &LogItem, _detail_level: u8) -> String {
+        // return text that should be searchable
+        item.content.clone()
+    }
+}
+
+// 3. run the application
 fn main() -> Result<()> {
-    let mut terminal = /* setup ratatui terminal */;
-    let provider = MyLogProvider { /* ... */ };
-    lazylog_framework::start_with_provider(&mut terminal, provider)?;
+    use ratatui::{Terminal, backend::CrosstermBackend};
+    use std::io;
+
+    let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
+    let provider = MyLogProvider;
+    let parser = Arc::new(MyLogParser);
+
+    lazylog_framework::start_with_provider(&mut terminal, provider, parser)?;
     Ok(())
 }
 ```
 
 ## Architecture
 
+The framework uses a two-trait system that separates log acquisition from parsing:
+
 ```
-┌─────────────────────────────────────┐
-│   Your LogProvider Implementation  │
-│  (file, socket, API, database, etc) │
-└─────────────────┬───────────────────┘
-                  │
-                  ↓
-         ┌────────────────────┐
-         │   Ring Buffer      │
-         │   (16K capacity)   │
-         └────────┬───────────┘
-                  │
-                  ↓
-      ┌──────────────────────┐
-      │  lazylog-framework   │
-      │  - Rendering         │
-      │  - Navigation        │
-      │  - Filtering         │
-      │  - UI management     │
-      └──────────┬───────────┘
-                 │
-                 ↓
-           ┌─────────────┐
-           │  Terminal   │
-           └─────────────┘
+┌──────────────┐   poll_logs()      ┌─────────────┐
+│ LogProvider  │ ─────────────────> │ Vec<String> │ (raw logs)
+└──────────────┘                    └──────┬──────┘
+                                           │
+                                           │ parse()
+                                           │
+┌──────────────┐   format_preview()  ┌────▼───────┐
+│  LogParser   │ <──────────────────│  LogItem   │
+└──────────────┘                    └────────────┘
+         │                                  │
+         └──────────────┬───────────────────┘
+                        │
+                        ↓
+              ┌──────────────────┐
+              │   Ring Buffer    │
+              │   (16K capacity) │
+              └─────────┬────────┘
+                        │
+                        ↓
+              ┌──────────────────┐
+              │ lazylog-framework│
+              │  - Rendering     │
+              │  - Navigation    │
+              │  - Filtering     │
+              │  - UI management │
+              └─────────┬────────┘
+                        │
+                        ↓
+                  ┌──────────┐
+                  │ Terminal │
+                  └──────────┘
 ```
 
-## LogProvider Trait
+## Core Concepts
 
-The core abstraction for log sources:
+### LogProvider Trait
+
+Provides raw log data from any source (files, network, APIs, etc.):
 
 ```rust
 pub trait LogProvider: Send {
-    /// Initialize resources (called once at startup)
+    /// initialize resources (called once at startup)
     fn start(&mut self) -> Result<()>;
 
-    /// Cleanup resources (called once at shutdown)
+    /// cleanup resources (called once at shutdown)
     fn stop(&mut self) -> Result<()>;
 
-    /// Poll for new logs (called repeatedly, non-blocking)
-    fn poll_logs(&mut self) -> Result<Vec<LogItem>>;
+    /// poll for new logs (non-blocking, returns raw strings)
+    fn poll_logs(&mut self) -> Result<Vec<String>>;
 }
 ```
 
-### Poll Interval
+**Key points:**
+- `poll_logs()` must be **non-blocking** - return empty vec if no logs available
+- Returns raw **strings**, not parsed `LogItem`s
+- Called repeatedly at configured interval (default: 100ms)
 
-By default, `poll_logs()` is called every 100ms. Customize with `AppDesc`:
+### LogParser Trait
+
+Parses raw strings and formats them for display:
+
+```rust
+pub trait LogParser: Send + Sync {
+    /// parse raw log string into structured LogItem (return None to filter)
+    fn parse(&self, raw_log: &str) -> Option<LogItem>;
+
+    /// format log for display at given detail level (0-4)
+    fn format_preview(&self, item: &LogItem, detail_level: u8) -> String;
+
+    /// extract searchable text for filtering
+    fn get_searchable_text(&self, item: &LogItem, detail_level: u8) -> String;
+
+    /// format for clipboard (optional, has default)
+    fn make_yank_content(&self, item: &LogItem) -> String { /* default impl */ }
+
+    /// max detail level supported (optional, default: 4)
+    fn max_detail_level(&self) -> u8 { 4 }
+}
+```
+
+### LogItem Structure
+
+Structured representation of a log entry:
+
+```rust
+pub struct LogItem {
+    pub id: Uuid,                       // auto-generated unique ID
+    pub time: String,                   // timestamp (auto-generated or custom)
+    pub content: String,                // parsed log message
+    pub raw_content: String,            // original log line
+    pub metadata: HashMap<String, String>, // extensible key-value storage
+}
+```
+
+Use the builder pattern to add metadata:
+
+```rust
+let log = LogItem::new(
+    "Application started".to_string(),
+    "2025-01-15 10:30:00 INFO main.rs Application started".to_string(),
+)
+.with_metadata("level", "INFO")
+.with_metadata("module", "main")
+.with_metadata("severity", "1");
+```
+
+## Configuration
+
+Customize behavior with `AppDesc`:
 
 ```rust
 use std::time::Duration;
 use lazylog_framework::{AppDesc, start_with_desc};
+use std::sync::Arc;
 
-let desc = AppDesc {
-    poll_interval: Duration::from_millis(50), // Poll every 50ms
-    show_debug_logs: true,
-    ring_buffer_size: 32768, // 32K buffer
-};
+let parser = Arc::new(MyParser);
+let mut desc = AppDesc::new(parser);
+
+desc.poll_interval = Duration::from_millis(50);  // poll every 50ms
+desc.ring_buffer_size = 32768;                   // 32K log capacity
+desc.show_debug_logs = true;                     // show debug panel
 
 start_with_desc(&mut terminal, provider, desc)?;
-```
-
-## LogItem Structure
-
-```rust
-pub struct LogItem {
-    pub id: Uuid,              // Auto-generated unique ID
-    pub time: String,          // Timestamp (free-form)
-    pub level: String,         // Log level (INFO, ERROR, etc.)
-    pub origin: String,        // Source/component
-    pub tag: String,           // Category/tag
-    pub content: String,       // Parsed content
-    pub raw_content: String,   // Original log line
-}
 ```
 
 ## Keybindings
@@ -155,7 +227,7 @@ pub struct LogItem {
 | `Ctrl+u` | Page up |
 | `/` | Enter filter mode |
 | `Esc` | Clear filter / Exit filter mode |
-| `a` | Toggle autoscroll |
+| `a` | Toggle autoscroll (tail mode) |
 | `+` | Increase detail level |
 | `-` | Decrease detail level |
 | `w` | Toggle text wrapping |
@@ -167,64 +239,142 @@ pub struct LogItem {
 
 ## Detail Levels
 
-Control how much information is displayed:
+Control how much information is displayed (0-4):
 
-| Level | Display |
-|-------|---------|
-| 0 - ContentOnly | `content` |
-| 1 - Basic | `[time] content` |
-| 2 - Medium | `[time] [tag] content` |
-| 3 - Detailed | `[time] [tag] [origin] content` |
-| 4 - Full | `[time] [tag] [origin] [level] content` |
+Your parser defines what each level shows via `format_preview()`. Common convention:
 
-## Example Providers
+| Level | Description |
+|-------|-------------|
+| 0 | Content only (minimal) |
+| 1 | Time + content |
+| 2 | Time + level + content |
+| 3 | Time + level + module + content |
+| 4 | All fields (maximum detail) |
 
-### File-based Provider
+Users can adjust levels with `+`/`-` keys to progressively reveal more information.
+
+## Examples
+
+See the `examples/` directory for complete working implementations:
+
+### Simple Example
+
+Generate dummy logs to demonstrate basic usage:
+
+```bash
+cargo run --example simple
+```
+
+### File Tailing Example
+
+Tail a log file (like `tail -f`):
+
+```bash
+cargo run --example file -- /path/to/logfile.log
+
+# or generate test logs:
+while true; do echo "$(date) Test log"; sleep 1; done > /tmp/test.log
+cargo run --example file -- /tmp/test.log
+```
+
+### Structured JSON Example
+
+Parse JSON logs with metadata and detail levels:
+
+```bash
+cargo run --example structured
+```
+
+## Advanced Examples
+
+### File-based Provider with Tailing
 
 ```rust
 use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 
-struct FileLogProvider {
-    file: BufReader<File>,
-    position: u64,
+struct FileProvider {
+    reader: Option<BufReader<File>>,
+    path: String,
 }
 
-impl FileLogProvider {
-    fn new(path: &str) -> Result<Self> {
-        let file = BufReader::new(File::open(path)?);
-        Ok(Self { file, position: 0 })
+impl LogProvider for FileProvider {
+    fn start(&mut self) -> Result<()> {
+        let file = File::open(&self.path)?;
+        let mut reader = BufReader::new(file);
+        reader.seek(SeekFrom::End(0))?; // start at end (tail mode)
+        self.reader = Some(reader);
+        Ok(())
     }
-}
 
-impl LogProvider for FileLogProvider {
-    fn start(&mut self) -> Result<()> { Ok(()) }
-    fn stop(&mut self) -> Result<()> { Ok(()) }
+    fn stop(&mut self) -> Result<()> {
+        self.reader = None;
+        Ok(())
+    }
 
-    fn poll_logs(&mut self) -> Result<Vec<LogItem>> {
+    fn poll_logs(&mut self) -> Result<Vec<String>> {
         let mut logs = Vec::new();
-        let mut line = String::new();
-
-        while self.file.read_line(&mut line)? > 0 {
-            if !line.trim().is_empty() {
-                logs.push(LogItem::new(
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                    line.trim().to_string(),
-                    line.clone(),
-                ));
+        if let Some(reader) = &mut self.reader {
+            let mut line = String::new();
+            while reader.read_line(&mut line)? > 0 {
+                if !line.trim().is_empty() {
+                    logs.push(line.trim().to_string());
+                }
+                line.clear();
             }
-            line.clear();
         }
-
         Ok(logs)
     }
 }
 ```
 
-### Socket-based Provider
+### JSON Parser with Metadata
+
+```rust
+struct JsonParser;
+
+impl LogParser for JsonParser {
+    fn parse(&self, raw_log: &str) -> Option<LogItem> {
+        let json: serde_json::Value = serde_json::from_str(raw_log).ok()?;
+
+        Some(LogItem::new(
+            json["message"].as_str()?.to_string(),
+            raw_log.to_string(),
+        )
+        .with_metadata("level", json["level"].as_str().unwrap_or("INFO"))
+        .with_metadata("module", json["module"].as_str().unwrap_or("")))
+    }
+
+    fn format_preview(&self, item: &LogItem, level: u8) -> String {
+        match level {
+            0 => item.content.clone(),
+            1 => format!("[{}] {}", item.time, item.content),
+            2 => format!("[{}] [{}] {}",
+                item.time,
+                item.get_metadata("level").unwrap_or(""),
+                item.content),
+            _ => format!("[{}] [{}] [{}] {}",
+                item.time,
+                item.get_metadata("level").unwrap_or(""),
+                item.get_metadata("module").unwrap_or(""),
+                item.content),
+        }
+    }
+
+    fn get_searchable_text(&self, item: &LogItem, level: u8) -> String {
+        if level >= 2 {
+            format!("{} {} {}",
+                item.get_metadata("level").unwrap_or(""),
+                item.get_metadata("module").unwrap_or(""),
+                item.content)
+        } else {
+            item.content.clone()
+        }
+    }
+}
+```
+
+### UDP Syslog Receiver
 
 ```rust
 use std::net::UdpSocket;
@@ -236,7 +386,7 @@ struct SyslogProvider {
 impl SyslogProvider {
     fn new(addr: &str) -> Result<Self> {
         let socket = UdpSocket::bind(addr)?;
-        socket.set_nonblocking(true)?;
+        socket.set_nonblocking(true)?; // critical for non-blocking poll
         Ok(Self { socket })
     }
 }
@@ -245,7 +395,7 @@ impl LogProvider for SyslogProvider {
     fn start(&mut self) -> Result<()> { Ok(()) }
     fn stop(&mut self) -> Result<()> { Ok(()) }
 
-    fn poll_logs(&mut self) -> Result<Vec<LogItem>> {
+    fn poll_logs(&mut self) -> Result<Vec<String>> {
         let mut logs = Vec::new();
         let mut buf = [0u8; 65536];
 
@@ -253,7 +403,7 @@ impl LogProvider for SyslogProvider {
             match self.socket.recv(&mut buf) {
                 Ok(size) => {
                     let msg = String::from_utf8_lossy(&buf[..size]);
-                    logs.push(parse_syslog(&msg));
+                    logs.push(msg.to_string());
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
                 Err(e) => return Err(e.into()),
@@ -265,54 +415,25 @@ impl LogProvider for SyslogProvider {
 }
 ```
 
-## Customization
-
-### AppDesc Configuration
-
-```rust
-use std::time::Duration;
-
-let config = AppDesc {
-    poll_interval: Duration::from_millis(100),  // How often to poll provider
-    show_debug_logs: false,                     // Show [3] Debug Logs panel
-    ring_buffer_size: 16384,                    // Max logs in memory
-};
-```
-
-### Log Parsing
-
-Extend `LogItem` with custom parsing in your provider:
-
-```rust
-fn parse_json_log(line: &str) -> LogItem {
-    let parsed: serde_json::Value = serde_json::from_str(line).unwrap();
-    LogItem::new(
-        parsed["timestamp"].as_str().unwrap_or("").to_string(),
-        parsed["level"].as_str().unwrap_or("INFO").to_string(),
-        parsed["service"].as_str().unwrap_or("").to_string(),
-        parsed["module"].as_str().unwrap_or("").to_string(),
-        parsed["message"].as_str().unwrap_or("").to_string(),
-        line.to_string(),
-    )
-}
-```
-
 ## Use Cases
 
 - **Application logs** - Tail local log files
 - **Container logs** - Monitor Docker/Kubernetes logs
 - **Syslog viewer** - UDP/TCP syslog receiver
 - **Database logs** - Stream from PostgreSQL, MongoDB, etc.
-- **API logs** - Fetch from logging services
-- **SSH logs** - Remote log tailing
+- **API logs** - Fetch from logging services (Elasticsearch, Loki, etc.)
+- **SSH logs** - Remote log tailing via SSH
 - **Multi-source aggregator** - Combine multiple log sources
+- **Device logs** - Monitor mobile devices (iOS, Android)
+- **Custom protocols** - Any streaming log source
 
 ## Performance
 
-- **Memory-efficient**: Ring buffer prevents unbounded growth
-- **Non-blocking**: Provider runs in background thread
-- **Lazy rendering**: Only visible logs are rendered
-- **Fast filtering**: Efficient text matching
+- **Memory-efficient**: Ring buffer prevents unbounded growth (default: 16K items)
+- **Lock-free**: Uses ringbuf crate for zero-allocation producer/consumer
+- **Lazy rendering**: Only visible logs are formatted and drawn
+- **Parallel filtering**: Uses rayon for fast regex filtering on large log sets
+- **Non-blocking**: Provider runs in background thread, UI stays responsive
 
 ## Requirements
 
@@ -320,17 +441,46 @@ fn parse_json_log(line: &str) -> LogItem {
 - Terminal with ANSI color support
 - For best experience: 256 colors, mouse support
 
+## Testing
+
+The framework includes doctests for all public APIs. Run them with:
+
+```bash
+cargo test --doc
+```
+
+## Documentation
+
+Full API documentation is available at [docs.rs/lazylog-framework](https://docs.rs/lazylog-framework).
+
+Generate local documentation:
+
+```bash
+cargo doc --open
+```
+
 ## License
 
 MIT OR Apache-2.0
 
+## Contributing
+
+Contributions welcome! Please:
+1. Check existing issues or create one
+2. Fork and create a feature branch
+3. Add tests for new functionality
+4. Ensure `cargo test` and `cargo clippy` pass
+5. Submit a pull request
+
 ## Credits
 
 Built with:
-- [ratatui](https://github.com/ratatui-org/ratatui) - TUI framework
+- [ratatui](https://github.com/ratatui-org/ratatui) - Terminal UI framework
 - [crossterm](https://github.com/crossterm-rs/crossterm) - Terminal manipulation
 - [ringbuf](https://github.com/agerasev/ringbuf) - Lock-free ring buffer
+- [regex](https://github.com/rust-lang/regex) - Regular expressions
+- [rayon](https://github.com/rayon-rs/rayon) - Parallel filtering
 
-## Contributing
+## Related Projects
 
-Contributions welcome! Please open an issue or PR.
+- [lazylog](https://github.com/your-org/lazylog) - Reference implementation with file/iOS/Android providers
