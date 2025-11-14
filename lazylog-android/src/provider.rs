@@ -119,10 +119,11 @@ impl AndroidLogProvider {
 
             log::debug!("Attempting to connect to Android device...");
 
-            // spawn adb logcat command with '*:V' to get all verbose logs
+            // spawn adb logcat command with '-v long' for detailed multi-line format
             let mut child = match Command::new("adb")
                 .arg("logcat")
-                .arg("*:V")
+                .arg("-v")
+                .arg("long")
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
                 .spawn()
@@ -164,6 +165,9 @@ impl AndroidLogProvider {
                         *child_opt = Some(child);
                     }
 
+                    // accumulator for multi-line log entries
+                    let mut current_entry = Vec::new();
+
                     // stream logs continuously
                     loop {
                         // check if we should stop
@@ -171,6 +175,12 @@ impl AndroidLogProvider {
                             && *stop
                         {
                             log::debug!("Stop signal received, exiting adb logcat");
+                            // flush any remaining entry
+                            if !current_entry.is_empty() {
+                                if let Ok(mut buffer) = log_buffer.lock() {
+                                    buffer.push(current_entry.join("\n"));
+                                }
+                            }
                             break;
                         }
 
@@ -182,13 +192,27 @@ impl AndroidLogProvider {
                         .await
                         {
                             Ok(Ok(Some(log_line))) => {
-                                // push to buffer
-                                if let Ok(mut buffer) = log_buffer.lock() {
-                                    buffer.push(log_line);
+                                if log_line.trim().is_empty() {
+                                    // empty line - end of current log entry
+                                    if !current_entry.is_empty() {
+                                        if let Ok(mut buffer) = log_buffer.lock() {
+                                            buffer.push(current_entry.join("\n"));
+                                        }
+                                        current_entry.clear();
+                                    }
+                                } else {
+                                    // accumulate line
+                                    current_entry.push(log_line);
                                 }
                             }
                             Ok(Ok(None)) => {
                                 log::debug!("adb logcat stream ended, device disconnected");
+                                // flush any remaining entry
+                                if !current_entry.is_empty() {
+                                    if let Ok(mut buffer) = log_buffer.lock() {
+                                        buffer.push(current_entry.join("\n"));
+                                    }
+                                }
                                 break;
                             }
                             Ok(Err(e)) => {

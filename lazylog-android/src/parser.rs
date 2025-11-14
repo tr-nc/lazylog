@@ -39,35 +39,68 @@ impl Default for AndroidParser {
 
 impl LogParser for AndroidParser {
     fn parse(&self, raw_log: &str) -> Option<LogItem> {
-        // find the first occurrence of ": " to locate the separator
-        let colon_space_idx = raw_log.find(": ")?;
+        // -v long format:
+        // [ MM-DD HH:MM:SS.mmm  PID: TID LEVEL/TAG ]
+        // message line 1
+        // message line 2...
 
-        // extract the part before ": "
-        let prefix = &raw_log[..colon_space_idx];
-        let message = &raw_log[colon_space_idx + 2..];
+        let lines: Vec<&str> = raw_log.lines().collect();
+        if lines.is_empty() {
+            return None;
+        }
 
-        // split prefix into tokens
-        let tokens: Vec<&str> = prefix.split_whitespace().collect();
+        let first_line = lines[0];
 
-        if tokens.len() < 5 {
+        // check if first line starts with '[' and ends with ']'
+        if !first_line.starts_with('[') || !first_line.ends_with(']') {
             // malformed log, return as-is
             return Some(LogItem::new(raw_log.to_string(), raw_log.to_string()));
         }
 
-        // extract components based on Android logcat format:
-        // MM-DD HH:MM:SS.mmm  PID  TID LEVEL TAG
-        let time = format!("{} {}", tokens[0], tokens[1]);
-        let _pid = tokens[2];
+        // extract the header content (without brackets)
+        let header = &first_line[1..first_line.len() - 1].trim();
+
+        // split header into tokens
+        let tokens: Vec<&str> = header.split_whitespace().collect();
+
+        if tokens.len() < 4 {
+            // malformed header, return as-is
+            return Some(LogItem::new(raw_log.to_string(), raw_log.to_string()));
+        }
+
+        // extract components:
+        // tokens[0] = MM-DD
+        // tokens[1] = HH:MM:SS.mmm
+        // tokens[2] = PID:
+        // tokens[3] = TID
+        // tokens[4] = LEVEL/TAG
+
+        let _pid = tokens[2].trim_end_matches(':');
         let _tid = tokens[3];
-        let level = tokens[4];
 
-        // tag is the last token (previous valid token before ": ")
-        let tag = tokens.last().unwrap_or(&"").to_string();
+        // level/tag is in format "LEVEL/TAG"
+        let level_tag = tokens.get(4).unwrap_or(&"");
+        let (level, tag) = if let Some(slash_pos) = level_tag.find('/') {
+            let level = &level_tag[..slash_pos];
+            let tag = level_tag[slash_pos + 1..].trim();
+            // if tag is empty after trimming, set to empty string
+            let tag = if tag.is_empty() { "" } else { tag };
+            (level, tag)
+        } else {
+            (*level_tag, "")
+        };
 
-        let mut item = LogItem::new(message.to_string(), raw_log.to_string());
-        item.time = time;
-        item = item.with_metadata("level", level.to_string());
-        item = item.with_metadata("tag", tag);
+        // message is the remaining lines (after the header)
+        let message = if lines.len() > 1 {
+            lines[1..].join("\n")
+        } else {
+            String::new()
+        };
+
+        // framework generates time automatically
+        let item = LogItem::new(message.clone(), raw_log.to_string())
+            .with_metadata("level", level.to_string())
+            .with_metadata("tag", tag.to_string());
 
         Some(item)
     }
