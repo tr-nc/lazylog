@@ -96,11 +96,11 @@ The framework uses a two-trait system that separates log acquisition from parsin
                                            │
                                            │ parse()
                                            │
-┌──────────────┐   format_preview()  ┌────▼───────┐
-│  LogParser   │ <──────────────────│  LogItem   │
+┌──────────────┐  format_preview()  ┌──────▼─────┐
+│  LogParser   │ <───────────────── │  LogItem   │
 └──────────────┘                    └────────────┘
-         │                                  │
-         └──────────────┬───────────────────┘
+         │                                 │
+         └──────────────┬──────────────────┘
                         │
                         ↓
               ┌──────────────────┐
@@ -143,6 +143,7 @@ pub trait LogProvider: Send {
 ```
 
 **Key points:**
+
 - `poll_logs()` must be **non-blocking** - return empty vec if no logs available
 - Returns raw **strings**, not parsed `LogItem`s
 - Called repeatedly at configured interval (default: 100ms)
@@ -217,25 +218,44 @@ start_with_desc(&mut terminal, provider, desc)?;
 
 ## Keybindings
 
+### Navigation
+
 | Key | Action |
 |-----|--------|
-| `j` / `↓` | Move down |
-| `k` / `↑` | Move up |
-| `g` `g` | Go to top |
-| `G` | Go to bottom |
-| `Ctrl+d` | Page down |
-| `Ctrl+u` | Page up |
+| `j` / `k` / `↑` / `↓` | Move to prev/next log |
+| `d` | Jump to bottom (latest log) |
+| `h` / `l` / `←` / `→` | Horizontal scrolling |
+| `Space` | Make selected log visible in view |
+| Mouse scroll | Vertical scrolling |
+| `Shift` + Mouse scroll | Horizontal scrolling |
+
+### Actions
+
+| Key | Action |
+|-----|--------|
 | `/` | Enter filter mode |
-| `Esc` | Clear filter / Exit filter mode |
-| `a` | Toggle autoscroll (tail mode) |
-| `+` | Increase detail level |
-| `-` | Decrease detail level |
+| `y` | Copy current log to clipboard |
+| `a` | Copy all displayed logs to clipboard |
+| `c` | Clear all logs |
 | `w` | Toggle text wrapping |
-| `y` | Yank (copy) selected log |
-| `d` | Toggle debug logs |
-| `?` | Show help |
-| `1` / `2` / `3` | Focus block 1/2/3 |
-| `q` | Quit |
+| `[` | Decrease detail level |
+| `]` | Increase detail level |
+| `Esc` | Go back / Clear filter |
+| `q` | Quit program |
+| `Ctrl+c` | Quit program |
+
+### Focus
+
+| Key | Action |
+|-----|--------|
+| `1` / `2` / `3` | Toggle focus on panel 1/2/3 |
+
+### Help
+
+| Key | Action |
+|-----|--------|
+| `?` | Show/hide help popup |
+| `b` | Toggle debug logs visibility |
 
 ## Detail Levels
 
@@ -466,6 +486,7 @@ MIT OR Apache-2.0
 ## Contributing
 
 Contributions welcome! Please:
+
 1. Check existing issues or create one
 2. Fork and create a feature branch
 3. Add tests for new functionality
@@ -475,6 +496,7 @@ Contributions welcome! Please:
 ## Credits
 
 Built with:
+
 - [ratatui](https://github.com/ratatui-org/ratatui) - Terminal UI framework
 - [crossterm](https://github.com/crossterm-rs/crossterm) - Terminal manipulation
 - [ringbuf](https://github.com/agerasev/ringbuf) - Lock-free ring buffer
