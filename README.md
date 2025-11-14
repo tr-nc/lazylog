@@ -86,6 +86,12 @@ cargo build
 cargo build --release
 ```
 
+## Publish framework
+
+```sh
+cargo publish -p lazylog-framework
+```
+
 ## Contributing
 
 We welcome contributions, testing, and feedback! If you:
