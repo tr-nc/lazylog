@@ -407,9 +407,10 @@ impl App {
             let log_item = &self.raw_logs[raw_idx];
 
             let detail_text = self.parser.format_preview(log_item, self.detail_level);
-            let level_style = match log_item.get_metadata("level").unwrap_or("") {
+            let level = log_item.get_metadata("level").unwrap_or("").to_uppercase();
+            let level_style = match level.as_str() {
                 "ERROR" => theme::ERROR_STYLE,
-                "WARNING" => theme::WARN_STYLE,
+                "WARNING" | "WARN" => theme::WARN_STYLE,
                 "SYSTEM" => theme::INFO_STYLE,
                 _ => Style::default().fg(theme::TEXT_FG_COLOR),
             };
@@ -676,11 +677,12 @@ impl App {
                 logs.iter()
                     .rev() // show most recent first
                     .map(|log_entry| {
-                        let style = if log_entry.contains("ERROR") {
+                        let log_upper = log_entry.to_uppercase();
+                        let style = if log_upper.contains("ERROR") {
                             theme::ERROR_STYLE
-                        } else if log_entry.contains("WARNING") {
+                        } else if log_upper.contains("WARNING") || log_upper.contains("WARN") {
                             theme::WARN_STYLE
-                        } else if log_entry.contains("DEBUG") {
+                        } else if log_upper.contains("DEBUG") {
                             theme::DEBUG_STYLE
                         } else {
                             theme::INFO_STYLE

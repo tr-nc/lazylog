@@ -19,10 +19,11 @@ lazy_static! {
 
     // extracts:  [origin] LEVEL ## [TAG] message…
     // important: In (?x) mode, `#` starts a comment. Escape the hashes as \#\#.
+    // Level can be uppercase or lowercase (ERROR, error, INFO, info, etc.)
     static ref CONTENT_HEADER_RE: Regex = Regex::new(
         r"(?xs)
           ^\[(?P<origin>[^\]]+)]\s*
-          (?P<level>[A-Z]+)\s*
+          (?P<level>[A-Za-z]+)\s*
           \#\#\s*
           \[(?P<tag>[^\]]+)]\s*
           (?P<msg>.*)"

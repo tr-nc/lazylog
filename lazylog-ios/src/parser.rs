@@ -84,9 +84,15 @@ impl LogParser for IosFullParser {
 
         let time = &item.time;
         let level = item.get_metadata("level").unwrap_or("");
+        let origin = item.get_metadata("origin").unwrap_or("");
         let tag = item.get_metadata("tag").unwrap_or("");
 
-        let field_order = [("time", time.as_str()), ("tag", tag), ("level", level)];
+        let field_order = [
+            ("time", time.as_str()),
+            ("level", level),
+            ("origin", origin),
+            ("tag", tag),
+        ];
 
         match detail_level {
             0 => content, // content only
@@ -102,7 +108,7 @@ impl LogParser for IosFullParser {
                 parts.join(" ")
             }
             2 => {
-                // time + tag
+                // time + level
                 let mut parts = Vec::new();
                 for (_, field_value) in field_order.iter().take(2) {
                     if !field_value.is_empty() {
@@ -112,8 +118,19 @@ impl LogParser for IosFullParser {
                 parts.push(content);
                 parts.join(" ")
             }
+            3 => {
+                // time + level + origin
+                let mut parts = Vec::new();
+                for (_, field_value) in field_order.iter().take(3) {
+                    if !field_value.is_empty() {
+                        parts.push(format!("[{}]", field_value));
+                    }
+                }
+                parts.push(content);
+                parts.join(" ")
+            }
             _ => {
-                // all fields (time + tag + level)
+                // all fields (time + level + origin + tag)
                 let mut parts = Vec::new();
                 for (_, field_value) in field_order.iter() {
                     if !field_value.is_empty() {
@@ -135,7 +152,7 @@ impl LogParser for IosFullParser {
     }
 
     fn max_detail_level(&self) -> LogDetailLevel {
-        3 // 4 levels: 0=content, 1=time, 2=time+tag, 3=all
+        4 // 5 levels: 0=content, 1=time, 2=time+level, 3=time+level+origin, 4=all
     }
 }
 
