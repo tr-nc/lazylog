@@ -166,10 +166,6 @@ impl LogParser for AndroidParser {
         self.format_preview(item, detail_level)
     }
 
-    fn make_yank_content(&self, item: &LogItem) -> String {
-        item.raw_content.clone()
-    }
-
     fn max_detail_level(&self) -> LogDetailLevel {
         4 // 5 levels: 0=content, 1=time, 2=time+level, 3=time+level+origin, 4=all
     }
@@ -177,13 +173,13 @@ impl LogParser for AndroidParser {
 
 /// structured Android log parser - filters for structured logs and delegates to lazylog-parser
 pub struct AndroidEffectParser {
-    simple_parser: AndroidParser,
+    full_parser: AndroidParser,
 }
 
 impl AndroidEffectParser {
     pub fn new() -> Self {
         Self {
-            simple_parser: AndroidParser::new(),
+            full_parser: AndroidParser::new(),
         }
     }
 }
@@ -197,7 +193,7 @@ impl Default for AndroidEffectParser {
 impl LogParser for AndroidEffectParser {
     fn parse(&self, raw_log: &str) -> Option<LogItem> {
         // first parse the log to extract tag information
-        let parsed = self.simple_parser.parse(raw_log)?;
+        let parsed = self.full_parser.parse(raw_log)?;
 
         // filter: only allow logs with "[Effect]" or "CKE-Editor" tag
         let tag = parsed.get_metadata("tag").unwrap_or("");
@@ -231,19 +227,15 @@ impl LogParser for AndroidEffectParser {
     }
 
     fn format_preview(&self, item: &LogItem, detail_level: LogDetailLevel) -> String {
-        self.simple_parser.format_preview(item, detail_level)
+        self.full_parser.format_preview(item, detail_level)
     }
 
     fn get_searchable_text(&self, item: &LogItem, detail_level: LogDetailLevel) -> String {
-        self.simple_parser.get_searchable_text(item, detail_level)
-    }
-
-    fn make_yank_content(&self, item: &LogItem) -> String {
-        self.simple_parser.make_yank_content(item)
+        self.full_parser.get_searchable_text(item, detail_level)
     }
 
     fn max_detail_level(&self) -> LogDetailLevel {
-        self.simple_parser.max_detail_level()
+        self.full_parser.max_detail_level()
     }
 }
 

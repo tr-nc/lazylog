@@ -53,7 +53,7 @@ pub trait LogParser: Send + Sync {
 
     /// get text to yank/copy to clipboard
     fn make_yank_content(&self, item: &LogItem) -> String {
-        item.raw_content.clone()
+        format!("{} {}", item.time, item.raw_content)
     }
 
     /// get maximum detail level supported by this parser

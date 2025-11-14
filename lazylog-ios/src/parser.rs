@@ -147,10 +147,6 @@ impl LogParser for IosFullParser {
         self.format_preview(item, detail_level)
     }
 
-    fn make_yank_content(&self, item: &LogItem) -> String {
-        item.raw_content.clone()
-    }
-
     fn max_detail_level(&self) -> LogDetailLevel {
         4 // 5 levels: 0=content, 1=time, 2=time+level, 3=time+level+origin, 4=all
     }
@@ -158,13 +154,13 @@ impl LogParser for IosFullParser {
 
 /// structured iOS log parser - filters for structured logs and delegates to lazylog-parser
 pub struct IosEffectParser {
-    simple_parser: IosFullParser,
+    full_parser: IosFullParser,
 }
 
 impl IosEffectParser {
     pub fn new() -> Self {
         Self {
-            simple_parser: IosFullParser::new(),
+            full_parser: IosFullParser::new(),
         }
     }
 
@@ -206,18 +202,14 @@ impl LogParser for IosEffectParser {
     }
 
     fn format_preview(&self, item: &LogItem, detail_level: LogDetailLevel) -> String {
-        self.simple_parser.format_preview(item, detail_level)
+        self.full_parser.format_preview(item, detail_level)
     }
 
     fn get_searchable_text(&self, item: &LogItem, detail_level: LogDetailLevel) -> String {
-        self.simple_parser.get_searchable_text(item, detail_level)
-    }
-
-    fn make_yank_content(&self, item: &LogItem) -> String {
-        self.simple_parser.make_yank_content(item)
+        self.full_parser.get_searchable_text(item, detail_level)
     }
 
     fn max_detail_level(&self) -> LogDetailLevel {
-        self.simple_parser.max_detail_level()
+        self.full_parser.max_detail_level()
     }
 }
