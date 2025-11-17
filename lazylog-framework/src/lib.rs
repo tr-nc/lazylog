@@ -151,7 +151,6 @@
 //! - `j`/`k`, `↓`/`↑`: move up/down
 //! - `gg`: jump to top, `G`: jump to bottom
 //! - `Ctrl+d`/`Ctrl+u`: page down/up
-//! - `a`: toggle autoscroll (like `tail -f`)
 //!
 //! ### Filtering
 //! - `/`: enter filter mode
