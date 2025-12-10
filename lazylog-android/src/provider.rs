@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use lazylog_framework::provider::LogProvider;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -103,6 +103,18 @@ impl LogProvider for AndroidLogProvider {
 
 // async helper function to spawn adb logcat command and stream logs
 impl AndroidLogProvider {
+    async fn clear_logcat_cache() -> Result<()> {
+        log::debug!("Clearing adb logcat buffer before streaming...");
+
+        let status = Command::new("adb").arg("logcat").arg("-c").status().await?;
+        if status.success() {
+            log::debug!("adb logcat buffer cleared");
+            Ok(())
+        } else {
+            Err(anyhow!("adb logcat -c exited with status {}", status))
+        }
+    }
+
     async fn run_adb_logcat(
         log_buffer: Arc<Mutex<Vec<String>>>,
         should_stop: Arc<Mutex<bool>>,
@@ -118,6 +130,12 @@ impl AndroidLogProvider {
             }
 
             log::debug!("Attempting to connect to Android device...");
+
+            if let Err(e) = Self::clear_logcat_cache().await {
+                log::warn!("Failed to clear adb log buffer: {}; retrying in 1s...", e);
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                continue;
+            }
 
             // spawn adb logcat command with '-v long' for detailed multi-line format
             let mut child = match Command::new("adb")
