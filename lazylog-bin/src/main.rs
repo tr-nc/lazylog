@@ -1,7 +1,7 @@
 use crossterm::event;
 use lazylog_android::{AndroidEffectParser, AndroidLogProvider, AndroidParser};
 use lazylog_dyeh::{DyehLogProvider, DyehParser};
-use lazylog_framework::start_with_provider;
+use lazylog_framework::{AppDesc, start_with_desc};
 use lazylog_ios::{IosEffectParser, IosFullParser, IosLogProvider};
 use ratatui::{
     Terminal,
@@ -32,6 +32,7 @@ fn print_usage() {
     eprintln!("  --ios-effect, -ie       Use iOS log provider [EFFECT MODE]");
     eprintln!("  --android, -a           Use Android log provider");
     eprintln!("  --android-effect, -ae   Use Android log provider [EFFECT MODE]");
+    eprintln!("  --filter, -f <QUERY>    Apply filter on startup");
     eprintln!("  --help, -h              Print this help message");
 }
 
@@ -78,6 +79,7 @@ fn check_adb_available() -> io::Result<()> {
     }
 }
 
+#[derive(PartialEq, Eq)]
 enum UsageOptions {
     IosEffect,
     IosFull,
@@ -88,40 +90,97 @@ enum UsageOptions {
     None, // when no args provided, show help
 }
 
-impl UsageOptions {
+fn set_provider_option(
+    current: &mut UsageOptions,
+    new_value: UsageOptions,
+) -> Result<(), io::Error> {
+    if matches!(current, UsageOptions::None | UsageOptions::Help) {
+        *current = new_value;
+        return Ok(());
+    }
+
+    if *current == new_value {
+        return Ok(());
+    }
+
+    print_usage();
+    Err(io::Error::new(
+        io::ErrorKind::InvalidInput,
+        "Only one provider option can be used at a time",
+    ))
+}
+
+struct CliOptions {
+    usage_option: UsageOptions,
+    initial_filter: Option<String>,
+}
+
+impl CliOptions {
     fn from_args(args: &[String]) -> Result<Self, io::Error> {
-        match args.len() {
-            0 => Ok(Self::None),
-            1 => match args[0].as_str() {
-                "--ios-effect" | "-ie" => Ok(Self::IosEffect),
-                "--ios" | "-i" => Ok(Self::IosFull),
-                "--android" | "-a" => Ok(Self::Android),
-                "--android-effect" | "-ae" => Ok(Self::AndroidEffect),
-                "--dyeh" | "-dy" => Ok(Self::Dyeh),
-                "--help" | "-h" => Ok(Self::Help),
+        let mut usage_option = UsageOptions::None;
+        let mut initial_filter = None;
+        let mut help_requested = false;
+
+        let mut i = 0;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--ios-effect" | "-ie" => {
+                    set_provider_option(&mut usage_option, UsageOptions::IosEffect)?
+                }
+                "--ios" | "-i" => set_provider_option(&mut usage_option, UsageOptions::IosFull)?,
+                "--android" | "-a" => {
+                    set_provider_option(&mut usage_option, UsageOptions::Android)?
+                }
+                "--android-effect" | "-ae" => {
+                    set_provider_option(&mut usage_option, UsageOptions::AndroidEffect)?
+                }
+                "--dyeh" | "-dy" => set_provider_option(&mut usage_option, UsageOptions::Dyeh)?,
+                "--filter" | "-f" => {
+                    i += 1;
+                    if i >= args.len() {
+                        print_usage();
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            "Missing filter value after --filter/-f",
+                        ));
+                    }
+                    if initial_filter.is_some() {
+                        print_usage();
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            "Filter provided multiple times",
+                        ));
+                    }
+                    initial_filter = Some(args[i].clone());
+                }
+                "--help" | "-h" => help_requested = true,
                 _ => {
                     print_usage();
-                    Err(io::Error::new(
+                    return Err(io::Error::new(
                         io::ErrorKind::InvalidInput,
-                        "Unknown option",
-                    ))
+                        format!("Unknown option: {}", args[i]),
+                    ));
                 }
-            },
-            _ => {
-                print_usage();
-                Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "Only zero or one argument is allowed",
-                ))
             }
+            i += 1;
         }
+
+        if help_requested {
+            usage_option = UsageOptions::Help;
+        }
+
+        Ok(Self {
+            usage_option,
+            initial_filter,
+        })
     }
 }
 
 fn main() -> io::Result<()> {
     // Collect args excluding the binary name
     let args: Vec<String> = env::args().skip(1).collect();
-    let usage_option = UsageOptions::from_args(&args)?;
+    let cli_options = CliOptions::from_args(&args)?;
+    let usage_option = cli_options.usage_option;
 
     if matches!(usage_option, UsageOptions::Help | UsageOptions::None) {
         print_usage();
@@ -159,31 +218,43 @@ fn main() -> io::Result<()> {
         original_hook(panic_info);
     }));
 
+    let initial_filter = cli_options.initial_filter;
+
+    let build_desc = |parser: Arc<dyn lazylog_framework::provider::LogParser>| -> AppDesc {
+        let mut desc = AppDesc::new(parser);
+        desc.initial_filter = initial_filter.clone();
+        desc
+    };
+
     // Prepare provider and parser based on option (default to DYEH)
     let app_result = match usage_option {
         UsageOptions::IosEffect => {
             let provider = IosLogProvider::new();
             let parser: Arc<dyn lazylog_framework::provider::LogParser> =
                 Arc::new(IosEffectParser::new());
-            start_with_provider(&mut terminal, provider, parser)
+            let desc = build_desc(parser);
+            start_with_desc(&mut terminal, provider, desc)
         }
         UsageOptions::IosFull => {
             let provider = IosLogProvider::new();
             let parser: Arc<dyn lazylog_framework::provider::LogParser> =
                 Arc::new(IosFullParser::new());
-            start_with_provider(&mut terminal, provider, parser)
+            let desc = build_desc(parser);
+            start_with_desc(&mut terminal, provider, desc)
         }
         UsageOptions::Android => {
             let provider = AndroidLogProvider::new();
             let parser: Arc<dyn lazylog_framework::provider::LogParser> =
                 Arc::new(AndroidParser::new());
-            start_with_provider(&mut terminal, provider, parser)
+            let desc = build_desc(parser);
+            start_with_desc(&mut terminal, provider, desc)
         }
         UsageOptions::AndroidEffect => {
             let provider = AndroidLogProvider::new();
             let parser: Arc<dyn lazylog_framework::provider::LogParser> =
                 Arc::new(AndroidEffectParser::new());
-            start_with_provider(&mut terminal, provider, parser)
+            let desc = build_desc(parser);
+            start_with_desc(&mut terminal, provider, desc)
         }
         UsageOptions::Dyeh => {
             if let Some(dir) = dirs::home_dir() {
@@ -191,7 +262,8 @@ fn main() -> io::Result<()> {
                 let provider = DyehLogProvider::new(log_dir_path);
                 let parser: Arc<dyn lazylog_framework::provider::LogParser> =
                     Arc::new(DyehParser::new());
-                start_with_provider(&mut terminal, provider, parser)
+                let desc = build_desc(parser);
+                start_with_desc(&mut terminal, provider, desc)
             } else {
                 eprintln!("Error: Could not determine home directory");
                 Ok(())

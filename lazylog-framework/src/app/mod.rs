@@ -43,6 +43,7 @@ pub struct AppDesc {
     pub poll_interval: Duration,
     pub show_debug_logs: bool,
     pub ring_buffer_size: usize,
+    pub initial_filter: Option<String>,
     pub parser: Arc<dyn LogParser>,
 }
 
@@ -52,6 +53,7 @@ impl AppDesc {
             poll_interval: Duration::from_millis(DEFAULT_POLL_INTERVAL_MS),
             show_debug_logs: false,
             ring_buffer_size: DEFAULT_RING_BUFFER_SIZE,
+            initial_filter: None,
             parser,
         }
     }
@@ -169,6 +171,14 @@ impl App {
         let mut filter_engine = FilterEngine::new();
         filter_engine.set_formatter(desc.parser.clone());
 
+        let initial_filter_input = desc
+            .initial_filter
+            .as_ref()
+            .map(|value| value.trim_start_matches('/'))
+            .filter(|value| !value.is_empty())
+            .map(|value| format!("/{}", value))
+            .unwrap_or_default();
+
         Self {
             is_exiting: false,
             raw_logs: Vec::new(),
@@ -177,7 +187,7 @@ impl App {
             provider_thread: Some(provider_thread),
             provider_stop_signal,
             autoscroll: true,
-            filter_input: String::new(),
+            filter_input: initial_filter_input,
             filter_focused: false,
             filter_engine,
             detail_level: 1, // default detail level (was Basic)
