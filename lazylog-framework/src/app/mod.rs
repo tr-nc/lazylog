@@ -9,7 +9,10 @@ use crate::{
     ui_logger::UiLogger,
 };
 use anyhow::{Result, anyhow};
-use crossterm::event::{self, Event, MouseEvent};
+use crossterm::{
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, MouseEvent},
+    execute,
+};
 use ratatui::{Terminal, backend::CrosstermBackend, prelude::*, widgets::Widget};
 use ringbuf::{
     HeapRb,
@@ -112,10 +115,11 @@ struct App {
     last_debug_area: Option<Rect>, // Store the last rendered debug area
     last_logs_viewport_height: Option<usize>, // Track viewport height to preserve bottom item on resize
     text_wrapping_enabled: bool,              // Whether text wrapping is enabled (default false)
-    show_debug_logs: bool,                    // Whether to show the debug logs block
-    show_help_popup: bool,                    // Whether to show the help popup
-    display_event: Option<DisplayEvent>,      // Temporary event to display in footer
-    prev_hard_focused_block_id: uuid::Uuid,   // Track previous hard focus to detect changes
+    mouse_capture_enabled: bool, // Whether mouse events are captured (disable to allow text selection)
+    show_debug_logs: bool,       // Whether to show the debug logs block
+    show_help_popup: bool,       // Whether to show the help popup
+    display_event: Option<DisplayEvent>, // Temporary event to display in footer
+    prev_hard_focused_block_id: uuid::Uuid, // Track previous hard focus to detect changes
 
     mouse_event: Option<MouseEvent>,
 }
@@ -205,6 +209,7 @@ impl App {
             last_debug_area: None,
             last_logs_viewport_height: None,
             text_wrapping_enabled: true,
+            mouse_capture_enabled: true,
             show_debug_logs: desc.show_debug_logs,
             show_help_popup: false,
             display_event: None,
@@ -267,8 +272,10 @@ impl App {
             match event {
                 Event::Key(key) => self.handle_key(key)?,
                 Event::Mouse(mouse) => {
-                    self.handle_mouse_event(&mouse)?;
-                    self.mouse_event = Some(mouse);
+                    if self.mouse_capture_enabled {
+                        self.handle_mouse_event(&mouse)?;
+                        self.mouse_event = Some(mouse);
+                    }
                 }
                 Event::Resize(width, height) => {
                     log::debug!("Terminal resized to {}x{}", width, height);
@@ -472,6 +479,23 @@ impl App {
         if self.soft_focused_block_id != Some(block_id) {
             self.soft_focused_block_id = Some(block_id);
         }
+    }
+
+    fn set_mouse_capture(&mut self, enable: bool) -> Result<()> {
+        if self.mouse_capture_enabled == enable {
+            return Ok(());
+        }
+
+        let mut stdout = io::stdout();
+        if enable {
+            execute!(stdout, EnableMouseCapture)?;
+        } else {
+            execute!(stdout, DisableMouseCapture)?;
+            self.mouse_event = None;
+        }
+
+        self.mouse_capture_enabled = enable;
+        Ok(())
     }
 
     fn get_display_focused_block(&self) -> uuid::Uuid {

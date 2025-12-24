@@ -315,6 +315,22 @@ impl App {
 
                 Ok(())
             }
+            KeyCode::Char('m') => {
+                let enable = !self.mouse_capture_enabled;
+                self.set_mouse_capture(enable)?;
+
+                let message = if enable {
+                    "Mouse capture enabled (mouse scroll/click active)"
+                } else {
+                    "Mouse capture disabled - text selection works"
+                };
+                self.set_display_event(
+                    message.to_string(),
+                    Duration::from_millis(DISPLAY_EVENT_DURATION_MS),
+                    None,
+                );
+                Ok(())
+            }
             KeyCode::Char('b') => {
                 self.show_debug_logs = !self.show_debug_logs;
                 log::debug!("Debug logs visibility toggled: {}", self.show_debug_logs);

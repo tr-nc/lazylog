@@ -115,6 +115,7 @@ impl App {
             Line::from("  a        - Copy all displayed logs to clipboard"),
             Line::from("  c        - Clear all logs"),
             Line::from("  w        - Toggle text wrapping"),
+            Line::from("  m        - Toggle mouse capture (select text when off)"),
             Line::from("  [        - Decrease detail level"),
             Line::from("  ]        - Increase detail level"),
             Line::from("  Esc      - Go back / clear filter"),

@@ -49,6 +49,8 @@ cargo run
 | `y` | Yank (copy) current log item to clipboard |
 | `a` | Yank (copy) all displayed logs to clipboard |
 | `c` | Clear all logs |
+| `w` | Toggle text wrapping |
+| `m` | Toggle mouse capture (disable to select/copy text) |
 | `f` | Fold logs (not implemented) |
 | `q` or `Esc` | Quit |
 | `Ctrl+C` | Force quit |
