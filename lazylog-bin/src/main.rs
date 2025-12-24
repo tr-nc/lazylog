@@ -24,7 +24,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 fn print_usage() {
-    eprintln!("Usage: lazylog [OPTIONS]");
+    eprintln!("Usage: zl [OPTIONS]");
     eprintln!();
     eprintln!("Options:");
     eprintln!("  --dyeh, -dy             Use DYEH file-based log provider");

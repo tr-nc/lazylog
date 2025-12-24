@@ -33,7 +33,7 @@ cargo build --release
 ### Basic usage
 
 ```bash
-# Run lazylog (automatically monitors ~/Library/Application Support/DouyinAR/Logs/previewLog)
+# Run zl (automatically monitors ~/Library/Application Support/DouyinAR/Logs/previewLog)
 cargo run
 ```
 
