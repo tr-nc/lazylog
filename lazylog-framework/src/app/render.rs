@@ -1,4 +1,5 @@
 use super::{App, HELP_POPUP_WIDTH, ScrollableBlockType};
+use arboard::Clipboard;
 use crate::{
     app_block::AppBlock,
     content_line_maker::{WrappingMode, calculate_content_width, content_into_lines},
@@ -6,10 +7,13 @@ use crate::{
     theme,
 };
 use anyhow::Result;
+use crossterm::event::{MouseButton, MouseEventKind};
 use ratatui::{
     prelude::*,
     widgets::{Paragraph, StatefulWidget, Widget},
 };
+use std::time::Duration;
+use unicode_width::UnicodeWidthChar;
 
 /// helper function to highlight filter matches in text
 /// splits text into spans, applying bold & underlined style to matching parts
@@ -51,6 +55,52 @@ fn create_highlighted_line(text: &str, filter_query: &str, base_style: Style) ->
     }
 
     Line::from(spans)
+}
+
+fn find_word_at_display_column(text: &str, display_col: usize) -> Option<String> {
+    if text.is_empty() {
+        return None;
+    }
+
+    let chars: Vec<char> = text.chars().collect();
+    let mut cursor = 0;
+    let mut target_idx = None;
+
+    for (idx, ch) in chars.iter().enumerate() {
+        let width = UnicodeWidthChar::width(*ch).unwrap_or(0).max(1);
+        if display_col < cursor + width {
+            target_idx = Some(idx);
+            break;
+        }
+        cursor += width;
+    }
+
+    let Some(target_idx) = target_idx else {
+        return None; // clicked beyond the end of the visible text
+    };
+
+    // if the clicked position is on whitespace, skip copying
+    if chars.get(target_idx).is_some_and(|ch| ch.is_whitespace()) {
+        return None;
+    }
+
+    let is_separator = |c: char| c.is_whitespace();
+
+    let mut start = target_idx;
+    while start > 0 && !is_separator(chars[start - 1]) {
+        start -= 1;
+    }
+
+    let mut end = target_idx;
+    while end < chars.len() && !is_separator(chars[end]) {
+        end += 1;
+    }
+
+    if start == end {
+        return None;
+    }
+
+    Some(chars[start..end].iter().collect())
 }
 
 impl App {
@@ -235,25 +285,47 @@ impl App {
         .margin(0)
         .areas(vertical_content_area);
 
-        // get mutable reference to update state
-        let block = match block_type {
-            ScrollableBlockType::Details => &mut self.details_block,
-            ScrollableBlockType::Debug => &mut self.debug_block,
+        // prepare layout values while limiting the mutable borrow scope
+        let (content_rect, scroll_position, horizontal_scroll, h_scroll) = {
+            let block = match block_type {
+                ScrollableBlockType::Details => &mut self.details_block,
+                ScrollableBlockType::Debug => &mut self.debug_block,
+            };
+
+            let content_rect = block.get_content_rect(content_area, is_focused);
+            block.update_horizontal_scrollbar_state(max_content_width, content_rect.width as usize);
+            block.set_lines_count(lines_count);
+            let scroll_position = block.get_scroll_position();
+            block.update_scrollbar_state(lines_count, Some(scroll_position));
+            let horizontal_scroll = block.get_horizontal_scroll_position();
+
+            let h_scroll = if needs_horizontal_scrollbar {
+                horizontal_scroll as u16
+            } else {
+                0
+            };
+
+            (content_rect, scroll_position, horizontal_scroll, h_scroll)
         };
 
-        let content_rect = block.get_content_rect(content_area, is_focused);
-        block.update_horizontal_scrollbar_state(max_content_width, content_rect.width as usize);
-        block.set_lines_count(lines_count);
-        let scroll_position = block.get_scroll_position();
-        block.update_scrollbar_state(lines_count, Some(scroll_position));
+        if matches!(block_type, ScrollableBlockType::Details) {
+            if let Err(err) = self.handle_details_click_copy(
+                &content,
+                content_rect,
+                scroll_position,
+                horizontal_scroll,
+            ) {
+                log::debug!("Failed to copy word from details: {}", err);
+            }
+        }
 
-        let h_scroll = if needs_horizontal_scrollbar {
-            block.get_horizontal_scroll_position() as u16
-        } else {
-            0
+        let block_widget = {
+            let block = match block_type {
+                ScrollableBlockType::Details => &self.details_block,
+                ScrollableBlockType::Debug => &self.debug_block,
+            };
+            block.build(is_focused)
         };
-
-        let block_widget = block.build(is_focused);
 
         // render paragraph with scrolling
         Paragraph::new(content)
@@ -709,5 +781,64 @@ impl App {
             debug_logs_lines,
             max_content_width,
         )
+    }
+
+    fn handle_details_click_copy(
+        &mut self,
+        content: &[Line],
+        content_rect: Rect,
+        vertical_scroll: usize,
+        horizontal_scroll: usize,
+    ) -> Result<()> {
+        let Some(mouse) = self.mouse_event else {
+            return Ok(());
+        };
+
+        if mouse.kind != MouseEventKind::Up(MouseButton::Left) {
+            return Ok(()); // only react on left click release to avoid double triggers
+        }
+
+        if !content_rect.contains(Position::new(mouse.column, mouse.row)) {
+            return Ok(());
+        }
+
+        let row_in_view = mouse.row.saturating_sub(content_rect.y) as usize;
+        let line_index = vertical_scroll.saturating_add(row_in_view);
+
+        let Some(line) = content.get(line_index) else {
+            return Ok(());
+        };
+
+        let col_in_view = mouse.column.saturating_sub(content_rect.x) as usize;
+        let display_col = horizontal_scroll.saturating_add(col_in_view);
+
+        let text = line.to_string();
+        let Some(word) = find_word_at_display_column(&text, display_col) else {
+            return Ok(());
+        };
+
+        let mut clipboard = Clipboard::new()?;
+        clipboard.set_text(word.clone())?;
+
+        let display_word: String = {
+            let max_chars = 64;
+            let total_chars = word.chars().count();
+            if total_chars > max_chars {
+                let truncated: String = word.chars().take(max_chars).collect();
+                format!("{}...", truncated)
+            } else {
+                word.clone()
+            }
+        };
+
+        self.set_display_event(
+            format!("Copied \"{}\" to clipboard", display_word),
+            Duration::from_millis(super::DISPLAY_EVENT_DURATION_MS),
+            None,
+        );
+
+        log::debug!("Copied word from details panel: {}", word);
+
+        Ok(())
     }
 }
