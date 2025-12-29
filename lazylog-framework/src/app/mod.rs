@@ -25,7 +25,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 mod events;
@@ -122,6 +122,8 @@ struct App {
     prev_hard_focused_block_id: uuid::Uuid, // Track previous hard focus to detect changes
 
     mouse_event: Option<MouseEvent>,
+    last_click_time: Option<Instant>,
+    last_click_pos: Option<(u16, u16)>,
 }
 
 #[derive(Copy, Clone)]
@@ -216,6 +218,8 @@ impl App {
             prev_hard_focused_block_id: logs_block_id,
 
             mouse_event: None,
+            last_click_time: None,
+            last_click_pos: None,
         }
     }
 }

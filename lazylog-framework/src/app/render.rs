@@ -12,7 +12,7 @@ use ratatui::{
     prelude::*,
     widgets::{Paragraph, StatefulWidget, Widget},
 };
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use unicode_width::UnicodeWidthChar;
 
 /// helper function to highlight filter matches in text
@@ -57,6 +57,24 @@ fn create_highlighted_line(text: &str, filter_query: &str, base_style: Style) ->
     Line::from(spans)
 }
 
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum WordClass {
+    AlphaNum,
+    Punct,
+}
+
+fn classify_word_char(ch: char) -> Option<WordClass> {
+    if ch.is_whitespace() {
+        return None;
+    }
+
+    if ch.is_alphanumeric() || ch == '_' {
+        Some(WordClass::AlphaNum)
+    } else {
+        Some(WordClass::Punct)
+    }
+}
+
 fn find_word_at_display_column(text: &str, display_col: usize) -> Option<String> {
     if text.is_empty() {
         return None;
@@ -79,28 +97,30 @@ fn find_word_at_display_column(text: &str, display_col: usize) -> Option<String>
         return None; // clicked beyond the end of the visible text
     };
 
-    // if the clicked position is on whitespace, skip copying
-    if chars.get(target_idx).is_some_and(|ch| ch.is_whitespace()) {
-        return None;
-    }
-
-    let is_separator = |c: char| c.is_whitespace();
+    let Some(target_class) = chars
+        .get(target_idx)
+        .and_then(|ch| classify_word_char(*ch))
+    else {
+        return None; // whitespace
+    };
 
     let mut start = target_idx;
-    while start > 0 && !is_separator(chars[start - 1]) {
+    while start > 0
+        && classify_word_char(chars[start - 1])
+            .is_some_and(|class| class == target_class)
+    {
         start -= 1;
     }
 
     let mut end = target_idx;
-    while end < chars.len() && !is_separator(chars[end]) {
+    while end + 1 < chars.len()
+        && classify_word_char(chars[end + 1])
+            .is_some_and(|class| class == target_class)
+    {
         end += 1;
     }
 
-    if start == end {
-        return None;
-    }
-
-    Some(chars[start..end].iter().collect())
+    Some(chars[start..=end].iter().collect())
 }
 
 impl App {
@@ -800,6 +820,21 @@ impl App {
 
         if !content_rect.contains(Position::new(mouse.column, mouse.row)) {
             return Ok(());
+        }
+
+        let now = Instant::now();
+        let same_cell = self.last_click_pos == Some((mouse.column, mouse.row));
+        let within_window = self
+            .last_click_time
+            .map(|prev| now.duration_since(prev) <= Duration::from_millis(400))
+            .unwrap_or(false);
+
+        // update click tracking before early exit
+        self.last_click_time = Some(now);
+        self.last_click_pos = Some((mouse.column, mouse.row));
+
+        if !(same_cell && within_window) {
+            return Ok(()); // require a double-click on the same cell
         }
 
         let row_in_view = mouse.row.saturating_sub(content_rect.y) as usize;
