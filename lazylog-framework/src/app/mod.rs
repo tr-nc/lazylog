@@ -568,48 +568,48 @@ impl Widget for &mut App {
         // detect if hard focus changed since last render
         let focus_changed = self.hard_focused_block_id != self.prev_hard_focused_block_id;
 
-        // determine dynamic layout based on hard focus
-        let (logs_percentage, details_percentage) =
-            if self.hard_focused_block_id == self.logs_block.id() {
-                (60, 40)
-            } else if self.hard_focused_block_id == self.details_block.id() {
-                (40, 60)
-            } else {
-                (60, 40) // default for debug block or any other case
-            };
-
-        if self.show_debug_logs {
+        let (main_area, debug_area, footer_area) = if self.show_debug_logs {
             let [main, debug_area, footer_area] = Layout::vertical([
                 Constraint::Fill(1),
                 Constraint::Length(6),
                 Constraint::Length(1),
             ])
             .areas(area);
-
-            let [logs_area, details_area] = Layout::vertical([
-                Constraint::Percentage(logs_percentage),
-                Constraint::Percentage(details_percentage),
-            ])
-            .areas(main);
-
-            self.render_logs(logs_area, buf).unwrap();
-            self.render_details(details_area, buf).unwrap();
-            self.render_debug_logs(debug_area, buf).unwrap();
-            self.render_footer(footer_area, buf).unwrap();
+            (main, Some(debug_area), footer_area)
         } else {
             let [main, footer_area] =
                 Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
+            (main, None, footer_area)
+        };
 
-            let [logs_area, details_area] = Layout::vertical([
-                Constraint::Percentage(logs_percentage),
-                Constraint::Percentage(details_percentage),
-            ])
-            .areas(main);
+        // If the smaller details panel is at least 8 lines tall, keep the logs panel larger.
+        let [_, smaller_details_area] =
+            Layout::vertical([Constraint::Percentage(60), Constraint::Percentage(40)])
+                .areas(main_area);
+        let ratio_switch_enabled = smaller_details_area.height < 8;
 
-            self.render_logs(logs_area, buf).unwrap();
-            self.render_details(details_area, buf).unwrap();
-            self.render_footer(footer_area, buf).unwrap();
+        let (logs_percentage, details_percentage) = if !ratio_switch_enabled {
+            (60, 40)
+        } else if self.hard_focused_block_id == self.details_block.id() {
+            (40, 60)
+        } else if self.hard_focused_block_id == self.logs_block.id() {
+            (60, 40)
+        } else {
+            (60, 40) // default for debug block or any other case
+        };
+
+        let [logs_area, details_area] = Layout::vertical([
+            Constraint::Percentage(logs_percentage),
+            Constraint::Percentage(details_percentage),
+        ])
+        .areas(main_area);
+
+        self.render_logs(logs_area, buf).unwrap();
+        self.render_details(details_area, buf).unwrap();
+        if let Some(debug_area) = debug_area {
+            self.render_debug_logs(debug_area, buf).unwrap();
         }
+        self.render_footer(footer_area, buf).unwrap();
 
         // render help popup on top if visible
         if self.show_help_popup {

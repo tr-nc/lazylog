@@ -1,5 +1,4 @@
 use super::{App, HELP_POPUP_WIDTH, ScrollableBlockType};
-use arboard::Clipboard;
 use crate::{
     app_block::AppBlock,
     content_line_maker::{WrappingMode, calculate_content_width, content_into_lines},
@@ -7,6 +6,7 @@ use crate::{
     theme,
 };
 use anyhow::Result;
+use arboard::Clipboard;
 use crossterm::event::{MouseButton, MouseEventKind};
 use ratatui::{
     prelude::*,
@@ -97,25 +97,20 @@ fn find_word_at_display_column(text: &str, display_col: usize) -> Option<String>
         return None; // clicked beyond the end of the visible text
     };
 
-    let Some(target_class) = chars
-        .get(target_idx)
-        .and_then(|ch| classify_word_char(*ch))
-    else {
+    let Some(target_class) = chars.get(target_idx).and_then(|ch| classify_word_char(*ch)) else {
         return None; // whitespace
     };
 
     let mut start = target_idx;
     while start > 0
-        && classify_word_char(chars[start - 1])
-            .is_some_and(|class| class == target_class)
+        && classify_word_char(chars[start - 1]).is_some_and(|class| class == target_class)
     {
         start -= 1;
     }
 
     let mut end = target_idx;
     while end + 1 < chars.len()
-        && classify_word_char(chars[end + 1])
-            .is_some_and(|class| class == target_class)
+        && classify_word_char(chars[end + 1]).is_some_and(|class| class == target_class)
     {
         end += 1;
     }
