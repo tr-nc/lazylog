@@ -250,7 +250,8 @@ impl App {
         // handle mouse events for hard/soft focus
         let should_hard_focus = if let Some(event) = self.mouse_event {
             let is_left_click = event.kind
-                == crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left);
+                == crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left)
+                && !self.suppress_mouse_up;
 
             // get block for checking bounds
             let block_ref = match block_type {
@@ -435,7 +436,8 @@ impl App {
 
         let (should_hard_focus, clicked_row) = if let Some(event) = self.mouse_event {
             let is_left_click = event.kind
-                == crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left);
+                == crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left)
+                && !self.suppress_mouse_up;
             let inner_area = self.logs_block.build(false).inner(main_content_area);
             let is_within_bounds =
                 inner_area.contains(ratatui::layout::Position::new(event.column, event.row));
@@ -809,7 +811,7 @@ impl App {
             return Ok(());
         };
 
-        if mouse.kind != MouseEventKind::Up(MouseButton::Left) {
+        if self.suppress_mouse_up || mouse.kind != MouseEventKind::Up(MouseButton::Left) {
             return Ok(()); // only react on left click release to avoid double triggers
         }
 

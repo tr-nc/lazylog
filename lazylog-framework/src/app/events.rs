@@ -2,13 +2,33 @@ use super::{App, DISPLAY_EVENT_DURATION_MS};
 use crate::provider::{decrement_detail_level, increment_detail_level};
 use anyhow::Result;
 use arboard::Clipboard;
-use crossterm::event::{self, KeyCode, KeyEvent, KeyEventKind, MouseEvent, MouseEventKind};
+use crossterm::event::{
+    self, KeyCode, KeyEvent, KeyEventKind, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::prelude::*;
 use std::time::Duration;
 
 impl App {
     pub(super) fn handle_mouse_event(&mut self, mouse: &MouseEvent) -> Result<()> {
         match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                if let Some(block_id) = self.get_scrollbar_block_under_mouse(mouse) {
+                    self.dragging_scrollbar_block = Some(block_id);
+                    self.set_hard_focused_block(block_id);
+                    self.handle_vertical_scrollbar_drag(block_id, mouse.row)?;
+                }
+            }
+            MouseEventKind::Drag(MouseButton::Left) => {
+                if let Some(block_id) = self.dragging_scrollbar_block {
+                    self.handle_vertical_scrollbar_drag(block_id, mouse.row)?;
+                }
+            }
+            MouseEventKind::Up(MouseButton::Left) => {
+                if let Some(block_id) = self.dragging_scrollbar_block.take() {
+                    self.handle_vertical_scrollbar_drag(block_id, mouse.row)?;
+                    self.suppress_mouse_up = true;
+                }
+            }
             MouseEventKind::ScrollDown => {
                 if let Some(block_under_mouse) = self.get_block_under_mouse(mouse) {
                     // Check if Shift is held for horizontal scrolling
@@ -55,7 +75,11 @@ impl App {
                     self.handle_horizontal_scrolling(block_under_mouse, true)?;
                 }
             }
-            MouseEventKind::Moved => {}
+            MouseEventKind::Moved => {
+                if let Some(block_id) = self.dragging_scrollbar_block {
+                    self.handle_vertical_scrollbar_drag(block_id, mouse.row)?;
+                }
+            }
             _ => {}
         }
         Ok(())

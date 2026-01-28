@@ -256,4 +256,92 @@ impl App {
 
         Ok(())
     }
+
+    pub(super) fn handle_vertical_scrollbar_drag(
+        &mut self,
+        block_id: uuid::Uuid,
+        mouse_row: u16,
+    ) -> Result<()> {
+        if block_id == self.logs_block.id() {
+            let Some(area) = self.last_logs_area else {
+                return Ok(());
+            };
+
+            let [content_area, scrollbar_area] = Layout::horizontal([
+                Constraint::Fill(1),
+                Constraint::Length(1),
+            ])
+            .margin(0)
+            .areas(area);
+
+            let track_height = scrollbar_area.height.saturating_sub(1);
+            let relative_row = mouse_row
+                .saturating_sub(scrollbar_area.y)
+                .min(track_height);
+            let track_height = track_height as usize;
+
+            let lines_count = self.logs_block.get_lines_count();
+            if lines_count == 0 {
+                self.logs_block.set_scroll_position(0);
+                self.logs_block.update_scrollbar_state(0, Some(0));
+                return Ok(());
+            }
+
+            let [main_content_area, _horizontal_scrollbar_area] = Layout::vertical([
+                Constraint::Fill(1),
+                Constraint::Length(1),
+            ])
+            .margin(0)
+            .areas(content_area);
+
+            let is_focused = self.get_display_focused_block() == self.logs_block.id();
+            let inner_area = self.logs_block.get_content_rect(main_content_area, is_focused);
+            let viewport_height = inner_area.height as usize;
+            let max_scroll = lines_count.saturating_sub(viewport_height);
+
+            let new_position = if track_height == 0 || max_scroll == 0 {
+                0
+            } else {
+                (relative_row as usize * max_scroll) / track_height
+            };
+
+            self.logs_block.set_scroll_position(new_position);
+            self.logs_block
+                .update_scrollbar_state(max_scroll, Some(new_position));
+            return Ok(());
+        }
+
+        if block_id == self.details_block.id() {
+            let Some(area) = self.last_details_area else {
+                return Ok(());
+            };
+
+            let [_content_area, scrollbar_area] = Layout::horizontal([
+                Constraint::Fill(1),
+                Constraint::Length(1),
+            ])
+            .margin(0)
+            .areas(area);
+
+            let track_height = scrollbar_area.height.saturating_sub(1);
+            let relative_row = mouse_row
+                .saturating_sub(scrollbar_area.y)
+                .min(track_height);
+            let track_height = track_height as usize;
+
+            let lines_count = self.details_block.get_lines_count();
+            let max_scroll = lines_count.saturating_sub(1);
+            let new_position = if track_height == 0 || max_scroll == 0 {
+                0
+            } else {
+                (relative_row as usize * max_scroll) / track_height
+            };
+
+            self.details_block.set_scroll_position(new_position);
+            self.details_block
+                .update_scrollbar_state(lines_count, Some(new_position));
+        }
+
+        Ok(())
+    }
 }

@@ -122,6 +122,8 @@ struct App {
     prev_hard_focused_block_id: uuid::Uuid, // Track previous hard focus to detect changes
 
     mouse_event: Option<MouseEvent>,
+    dragging_scrollbar_block: Option<uuid::Uuid>,
+    suppress_mouse_up: bool,
     last_click_time: Option<Instant>,
     last_click_pos: Option<(u16, u16)>,
 }
@@ -218,6 +220,8 @@ impl App {
             prev_hard_focused_block_id: logs_block_id,
 
             mouse_event: None,
+            dragging_scrollbar_block: None,
+            suppress_mouse_up: false,
             last_click_time: None,
             last_click_pos: None,
         }
@@ -496,6 +500,8 @@ impl App {
         } else {
             execute!(stdout, DisableMouseCapture)?;
             self.mouse_event = None;
+            self.dragging_scrollbar_block = None;
+            self.suppress_mouse_up = false;
         }
 
         self.mouse_capture_enabled = enable;
@@ -534,6 +540,41 @@ impl App {
 
         None
     }
+
+    fn get_vertical_scrollbar_area(&self, block_id: uuid::Uuid) -> Option<Rect> {
+        let area = if block_id == self.logs_block.id() {
+            self.last_logs_area
+        } else if block_id == self.details_block.id() {
+            self.last_details_area
+        } else {
+            None
+        }?;
+
+        let [_content_area, scrollbar_area] = Layout::horizontal([
+            Constraint::Fill(1),
+            Constraint::Length(1),
+        ])
+        .margin(0)
+        .areas(area);
+
+        Some(scrollbar_area)
+    }
+
+    fn get_scrollbar_block_under_mouse(&self, mouse: &MouseEvent) -> Option<uuid::Uuid> {
+        if let Some(area) = self.get_vertical_scrollbar_area(self.logs_block.id())
+            && self.is_mouse_in_area(mouse, area)
+        {
+            return Some(self.logs_block.id());
+        }
+
+        if let Some(area) = self.get_vertical_scrollbar_area(self.details_block.id())
+            && self.is_mouse_in_area(mouse, area)
+        {
+            return Some(self.details_block.id());
+        }
+
+        None
+    }
 }
 
 // ============================================================================
@@ -557,6 +598,7 @@ impl App {
 
     fn clear_event(&mut self) {
         self.mouse_event = None;
+        self.suppress_mouse_up = false;
     }
 }
 
