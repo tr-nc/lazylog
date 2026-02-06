@@ -158,7 +158,7 @@ impl App {
         if let Some(style) = custom_style {
             status_bar = status_bar.set_style(style);
         } else if self.filter_focused {
-            status_bar = status_bar.set_style(Style::default().bg(Color::DarkGray));
+            status_bar = status_bar.set_style(theme::FILTER_FOCUS_STYLE);
         }
 
         status_bar.render(area, buf);

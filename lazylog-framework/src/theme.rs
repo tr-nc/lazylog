@@ -37,6 +37,8 @@ pub const ERROR_STYLE: Style = Style::new().fg(Color::LightRed);
 pub const DEBUG_STYLE: Style = Style::new().fg(Color::LightGreen);
 
 pub const DISPLAY_EVENT_STYLE: Style = Style::new()
-    .fg(Color::White)
+    .fg(Color::Black)
     .bg(Color::Yellow)
     .add_modifier(Modifier::BOLD);
+
+pub const FILTER_FOCUS_STYLE: Style = Style::new().bg(Color::DarkGray);
