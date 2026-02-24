@@ -267,17 +267,13 @@ impl App {
                 return Ok(());
             };
 
-            let [content_area, scrollbar_area] = Layout::horizontal([
-                Constraint::Fill(1),
-                Constraint::Length(1),
-            ])
-            .margin(0)
-            .areas(area);
+            let [content_area, scrollbar_area] =
+                Layout::horizontal([Constraint::Fill(1), Constraint::Length(1)])
+                    .margin(0)
+                    .areas(area);
 
             let track_height = scrollbar_area.height.saturating_sub(1);
-            let relative_row = mouse_row
-                .saturating_sub(scrollbar_area.y)
-                .min(track_height);
+            let relative_row = mouse_row.saturating_sub(scrollbar_area.y).min(track_height);
             let track_height = track_height as usize;
 
             let lines_count = self.logs_block.get_lines_count();
@@ -287,15 +283,15 @@ impl App {
                 return Ok(());
             }
 
-            let [main_content_area, _horizontal_scrollbar_area] = Layout::vertical([
-                Constraint::Fill(1),
-                Constraint::Length(1),
-            ])
-            .margin(0)
-            .areas(content_area);
+            let [main_content_area, _horizontal_scrollbar_area] =
+                Layout::vertical([Constraint::Fill(1), Constraint::Length(1)])
+                    .margin(0)
+                    .areas(content_area);
 
             let is_focused = self.get_display_focused_block() == self.logs_block.id();
-            let inner_area = self.logs_block.get_content_rect(main_content_area, is_focused);
+            let inner_area = self
+                .logs_block
+                .get_content_rect(main_content_area, is_focused);
             let viewport_height = inner_area.height as usize;
             let max_scroll = lines_count.saturating_sub(viewport_height);
 
@@ -316,17 +312,13 @@ impl App {
                 return Ok(());
             };
 
-            let [_content_area, scrollbar_area] = Layout::horizontal([
-                Constraint::Fill(1),
-                Constraint::Length(1),
-            ])
-            .margin(0)
-            .areas(area);
+            let [_content_area, scrollbar_area] =
+                Layout::horizontal([Constraint::Fill(1), Constraint::Length(1)])
+                    .margin(0)
+                    .areas(area);
 
             let track_height = scrollbar_area.height.saturating_sub(1);
-            let relative_row = mouse_row
-                .saturating_sub(scrollbar_area.y)
-                .min(track_height);
+            let relative_row = mouse_row.saturating_sub(scrollbar_area.y).min(track_height);
             let track_height = track_height as usize;
 
             let lines_count = self.details_block.get_lines_count();

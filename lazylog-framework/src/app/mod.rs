@@ -550,12 +550,10 @@ impl App {
             None
         }?;
 
-        let [_content_area, scrollbar_area] = Layout::horizontal([
-            Constraint::Fill(1),
-            Constraint::Length(1),
-        ])
-        .margin(0)
-        .areas(area);
+        let [_content_area, scrollbar_area] =
+            Layout::horizontal([Constraint::Fill(1), Constraint::Length(1)])
+                .margin(0)
+                .areas(area);
 
         Some(scrollbar_area)
     }
