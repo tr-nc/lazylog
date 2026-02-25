@@ -103,6 +103,28 @@ impl LogProvider for AndroidLogProvider {
 
 // async helper function to spawn adb logcat command and stream logs
 impl AndroidLogProvider {
+    async fn sleep_interruptible(duration: std::time::Duration, should_stop: &Arc<Mutex<bool>>) {
+        const CHECK_INTERVAL_MS: u64 = 25;
+        let check_interval = std::time::Duration::from_millis(CHECK_INTERVAL_MS);
+
+        if duration <= check_interval {
+            tokio::time::sleep(duration).await;
+            return;
+        }
+
+        let mut elapsed = std::time::Duration::ZERO;
+        while elapsed < duration {
+            if let Ok(stop) = should_stop.lock()
+                && *stop
+            {
+                return;
+            }
+            let sleep_time = check_interval.min(duration - elapsed);
+            tokio::time::sleep(sleep_time).await;
+            elapsed += sleep_time;
+        }
+    }
+
     async fn clear_logcat_cache() -> Result<()> {
         log::debug!("Clearing adb logcat buffer before streaming...");
 
@@ -133,7 +155,7 @@ impl AndroidLogProvider {
 
             if let Err(e) = Self::clear_logcat_cache().await {
                 log::warn!("Failed to clear adb log buffer: {}; retrying in 1s...", e);
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                Self::sleep_interruptible(std::time::Duration::from_secs(1), &should_stop).await;
                 continue;
             }
 
@@ -168,7 +190,7 @@ impl AndroidLogProvider {
                         "No Android device found (exit status: {}), retrying in 1s...",
                         status
                     );
-                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    Self::sleep_interruptible(std::time::Duration::from_secs(1), &should_stop).await;
                     continue;
                 }
                 Ok(None) => {
