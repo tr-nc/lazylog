@@ -120,7 +120,84 @@ The framework uses a two-trait system that separates log acquisition from parsin
                         ↓
                   ┌──────────┐
                   │ Terminal │
-                  └──────────┘
+                   └──────────┘
+```
+
+## Performance & Responsiveness
+
+Lazylog-framework prioritizes snappy user interaction:
+
+### Event Loop Architecture
+
+```
+┌─────────────────────────────────────────────────┐
+│              Main Application Loop              │
+├─────────────────────────────────────────────────┤
+│  Event Poll (16ms)                             │
+│  ├─ Keyboard input (~60fps response)           │
+│  ├─ Mouse events                               │
+│  └─ Terminal resize                           │
+├─────────────────────────────────────────────────┤
+│  Provider Poll (100ms, throttled)             │
+│  └─ Log ingestion from ring buffer            │
+├─────────────────────────────────────────────────┤
+│  Render (after each event or provider poll)    │
+│  └─ UI update at 16ms intervals              │
+└─────────────────────────────────────────────────┘
+```
+
+### Key Design Principles
+
+- **Separate intervals**: Events at 16ms, providers at 100ms
+- **Interruptible sleeps**: Provider thread checks stop signal every 25ms
+- **Immediate stop signaling**: Quit key triggers fast shutdown
+- **No blocking UI**: Event loop never waits for provider
+
+### Implementing Responsive Providers
+
+When implementing `LogProvider`, ensure:
+
+1. **Non-blocking `poll_logs()`**: Return immediately if no logs
+2. **Interruptible waits**: Use `sleep_interruptible` for any delays
+3. **Respect stop signal**: Check `should_stop` in long-running loops
+
+Example of interruptible wait:
+
+```rust
+// ❌ Blocking - prevents fast quit
+tokio::time::sleep(Duration::from_secs(1)).await;
+
+// ✅ Interruptible - allows quit within 25ms
+async fn sleep_interruptible(duration: Duration, should_stop: &Arc<Mutex<bool>>) {
+    const CHECK_INTERVAL_MS: u64 = 25;
+    let check_interval = Duration::from_millis(CHECK_INTERVAL_MS);
+
+    let mut elapsed = Duration::ZERO;
+    while elapsed < duration {
+        if should_stop.load(Ordering::Relaxed) {
+            return;
+        }
+        let sleep_time = check_interval.min(duration - elapsed);
+        tokio::time::sleep(sleep_time).await;
+        elapsed += sleep_time;
+    }
+}
+```
+
+### Configuration
+
+Adjust polling intervals via `AppDesc`:
+
+```rust
+let mut desc = AppDesc::new(parser);
+
+// Event polling (input responsiveness)
+desc.event_poll_interval = Duration::from_millis(16); // ~60fps
+
+// Provider polling (log ingestion frequency)
+desc.poll_interval = Duration::from_millis(100); // 10Hz
+
+start_with_desc(&mut terminal, provider, desc)?;
 ```
 
 ## Core Concepts

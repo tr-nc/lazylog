@@ -14,6 +14,18 @@ Lazylog provides instant log file access with structured parsing, smooth scrolli
 - **Memory efficient** - Handles large files with memory-mapped access and ring buffers (16K capacity)
 - **Cross-platform** - Runs on Linux, macOS, and Windows
 - **Framework library** - `lazylog-framework` available as a reusable crate for custom log viewers
+- **Responsive UI** - Interruptible sleeps ensure snappy key responses even when no device is connected
+
+## Performance
+
+Lazylog is designed for responsiveness:
+
+- **Event polling** at 16ms interval (~60fps) ensures immediate key and mouse response
+- **Provider polling** at 100ms interval for efficient log ingestion
+- **Interruptible sleeps** check stop signals every 25ms, allowing quit to interrupt long waits
+- **Immediate stop signaling** on quit keys (`q` or `Ctrl+C`) triggers fast shutdown
+
+This means pressing `q` exits within ~25-50ms even when no device is connected (was up to 1s before).
 
 ## Installation
 
