@@ -216,6 +216,8 @@ impl App {
             KeyCode::Char('q') => {
                 // always quit, regardless of filter state or other modes
                 log::debug!("Quit key pressed");
+                self.provider_stop_signal
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
                 self.is_exiting = true;
                 Ok(())
             }
@@ -231,6 +233,8 @@ impl App {
             }
             KeyCode::Char('c') => {
                 if key.modifiers.contains(event::KeyModifiers::CONTROL) {
+                    self.provider_stop_signal
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
                     self.is_exiting = true;
                 } else {
                     self.clear_logs();
