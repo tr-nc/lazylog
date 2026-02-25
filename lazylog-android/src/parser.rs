@@ -195,15 +195,6 @@ impl LogParser for AndroidEffectParser {
         // first parse the log to extract tag information
         let parsed = self.full_parser.parse(raw_log)?;
 
-        // filter: only allow logs with "[Effect]" or "CKE-Editor" tag
-        let tag = parsed.get_metadata("tag").unwrap_or("");
-        let is_allowed_tag = tag == "[Effect]" || tag == "CKE-Editor";
-
-        if !is_allowed_tag {
-            // tag not allowed, filter out this log
-            return None;
-        }
-
         // check if this log has structured marker
         if !STRUCTURED_MARKER_RE.is_match(raw_log) {
             // no structured marker, filter out this log
@@ -355,5 +346,34 @@ Prepared frame frame 15."#;
         assert!(preview.contains("tid:30427,AMGText.cpp:885"));
         assert!(preview.contains("AE_TEXT_TAG"));
         assert!(preview.contains("Set Text bloom path:"));
+    }
+
+    #[test]
+    fn test_android_effect_parser_accepts_ae_jsruntime_tag() {
+        let parser = AndroidEffectParser::new();
+        let raw_log = r#"[ 02-25 18:06:39.874 17824:18862 I/AE_JSRUNTIME_TAG ]
+## 2026-02-25 18:06:39 [threadid:1215784752,ConsoleModule.cpp,103] SYSTEM ## [AE_JSRUNTIME_TAG]'TRC: time is 1.745'"#;
+
+        let result = parser.parse(raw_log);
+        assert!(result.is_some());
+
+        let item = result.unwrap();
+        assert_eq!(item.get_metadata("level"), Some("SYSTEM"));
+        assert_eq!(
+            item.get_metadata("origin"),
+            Some("threadid:1215784752,ConsoleModule.cpp,103")
+        );
+        assert_eq!(item.get_metadata("tag"), Some("AE_JSRUNTIME_TAG"));
+        assert_eq!(item.content, "'TRC: time is 1.745'");
+    }
+
+    #[test]
+    fn test_android_effect_parser_filters_non_structured_logs() {
+        let parser = AndroidEffectParser::new();
+        let raw_log = r#"[ 02-25 18:06:39.874 17824:18862 I/AE_JSRUNTIME_TAG ]
+plain unstructured message"#;
+
+        let result = parser.parse(raw_log);
+        assert!(result.is_none());
     }
 }
