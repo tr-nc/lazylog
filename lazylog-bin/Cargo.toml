@@ -7,7 +7,7 @@ description = "Terminal Log Viewer Framework"
 publish = false                               # Don't publish to crates.io
 
 [[bin]]
-name = "zl"
+name = "lazylog"
 path = "src/main.rs"
 
 [dependencies]

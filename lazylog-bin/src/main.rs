@@ -1,20 +1,20 @@
 use crossterm::event;
 use lazylog_android::{AndroidEffectParser, AndroidLogProvider, AndroidParser};
 use lazylog_dyeh::{DyehLogProvider, DyehParser};
-use lazylog_framework::{AppDesc, start_with_desc};
+use lazylog_framework::{start_with_desc, AppDesc};
 use lazylog_ios::{IosEffectParser, IosFullParser, IosLogProvider};
 use ratatui::{
-    Terminal,
     backend::CrosstermBackend,
     crossterm::{
         event::{DisableMouseCapture, EnableMouseCapture},
         execute,
         style::{Color, ResetColor, SetBackgroundColor},
         terminal::{
-            Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
-            enable_raw_mode,
+            disable_raw_mode, enable_raw_mode, Clear, ClearType, EnterAlternateScreen,
+            LeaveAlternateScreen,
         },
     },
+    Terminal,
 };
 use std::env;
 use std::io;
@@ -24,7 +24,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 fn print_usage() {
-    eprintln!("Usage: zl [OPTIONS]");
+    eprintln!("Usage: lazylog [OPTIONS]");
     eprintln!();
     eprintln!("Options:");
     eprintln!("  --dyeh, -dy             Use DYEH file-based log provider");

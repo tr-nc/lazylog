@@ -46,12 +46,12 @@ jobs:
       - name: Archive binary (Preserves +x permission)
         run: |
           cd target/release
-          tar -czvf zl-macos.tar.gz zl
+          tar -czvf lazylog-macos.tar.gz lazylog
           
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          files: target/release/zl-macos.tar.gz
+          files: target/release/lazylog-macos.tar.gz
           # Specify the tag name explicitly so the release action knows which tag to attach to
           tag_name: ${{ github.ref_name }}
 
@@ -69,6 +69,6 @@ jobs:
           formula-name: lazylog
           homebrew-tap: tr-nc/homebrew-tap
           # github.ref_name contains the tag name (e.g., v0.5.3)
-          download-url: https://github.com/tr-nc/lazylog/releases/download/${{ github.ref_name }}/zl-macos.tar.gz
+          download-url: https://github.com/tr-nc/lazylog/releases/download/${{ github.ref_name }}/lazylog-macos.tar.gz
         env:
           COMMITTER_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
