@@ -33,6 +33,7 @@ fn print_usage() {
     eprintln!("  --android, -a           Use Android log provider");
     eprintln!("  --android-effect, -ae   Use Android log provider [EFFECT MODE]");
     eprintln!("  --filter, -f <QUERY>    Apply filter on startup");
+    eprintln!("  --version, -v           Print version information");
     eprintln!("  --help, -h              Print this help message");
 }
 
@@ -87,6 +88,7 @@ enum UsageOptions {
     AndroidEffect,
     Dyeh,
     Help,
+    Version,
     None, // when no args provided, show help
 }
 
@@ -135,6 +137,9 @@ impl CliOptions {
                     set_provider_option(&mut usage_option, UsageOptions::AndroidEffect)?
                 }
                 "--dyeh" | "-dy" => set_provider_option(&mut usage_option, UsageOptions::Dyeh)?,
+                "--version" | "-v" => {
+                    set_provider_option(&mut usage_option, UsageOptions::Version)?
+                }
                 "--filter" | "-f" => {
                     i += 1;
                     if i >= args.len() {
@@ -181,6 +186,11 @@ fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().skip(1).collect();
     let cli_options = CliOptions::from_args(&args)?;
     let usage_option = cli_options.usage_option;
+
+    if matches!(usage_option, UsageOptions::Version) {
+        println!("lazylog {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
 
     if matches!(usage_option, UsageOptions::Help | UsageOptions::None) {
         print_usage();
@@ -267,7 +277,7 @@ fn main() -> io::Result<()> {
                 Ok(())
             }
         }
-        UsageOptions::Help | UsageOptions::None => unreachable!(),
+        UsageOptions::Help | UsageOptions::None | UsageOptions::Version => unreachable!(),
     };
 
     // Always restore terminal before printing or exiting
