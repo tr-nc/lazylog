@@ -28,14 +28,22 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      
       - name: Extract version from tag
         id: version
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          
       - name: Build release
         run: cargo build --release --verbose
+        
+      - name: Archive binary (Preserves +x permission)
+        run: |
+          cd target/release
+          tar -czvf zl-macos.tar.gz zl
+          
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          files: target/release/zl
+          files: target/release/zl-macos.tar.gz
