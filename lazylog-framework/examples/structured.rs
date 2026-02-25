@@ -10,9 +10,9 @@
 
 use anyhow::Result;
 use lazylog_framework::{
-    start_with_desc, AppDesc, LogDetailLevel, LogItem, LogParser, LogProvider,
+    AppDesc, LogDetailLevel, LogItem, LogParser, LogProvider, start_with_desc,
 };
-use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io;
 use std::sync::Arc;
 use std::time::Duration;
