@@ -194,10 +194,10 @@ impl AndroidLogProvider {
                         {
                             log::debug!("Stop signal received, exiting adb logcat");
                             // flush any remaining entry
-                            if !current_entry.is_empty() {
-                                if let Ok(mut buffer) = log_buffer.lock() {
-                                    buffer.push(current_entry.join("\n"));
-                                }
+                            if !current_entry.is_empty()
+                                && let Ok(mut buffer) = log_buffer.lock()
+                            {
+                                buffer.push(current_entry.join("\n"));
                             }
                             break;
                         }
@@ -226,10 +226,10 @@ impl AndroidLogProvider {
                             Ok(Ok(None)) => {
                                 log::debug!("adb logcat stream ended, device disconnected");
                                 // flush any remaining entry
-                                if !current_entry.is_empty() {
-                                    if let Ok(mut buffer) = log_buffer.lock() {
-                                        buffer.push(current_entry.join("\n"));
-                                    }
+                                if !current_entry.is_empty()
+                                    && let Ok(mut buffer) = log_buffer.lock()
+                                {
+                                    buffer.push(current_entry.join("\n"));
                                 }
                                 break;
                             }

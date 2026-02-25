@@ -324,15 +324,15 @@ impl App {
             (content_rect, scroll_position, horizontal_scroll, h_scroll)
         };
 
-        if matches!(block_type, ScrollableBlockType::Details) {
-            if let Err(err) = self.handle_details_click_copy(
+        if matches!(block_type, ScrollableBlockType::Details)
+            && let Err(err) = self.handle_details_click_copy(
                 &content,
                 content_rect,
                 scroll_position,
                 horizontal_scroll,
-            ) {
-                log::debug!("Failed to copy word from details: {}", err);
-            }
+            )
+        {
+            log::debug!("Failed to copy word from details: {}", err);
         }
 
         let block_widget = {

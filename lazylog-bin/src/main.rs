@@ -191,22 +191,20 @@ fn main() -> io::Result<()> {
     if matches!(
         usage_option,
         UsageOptions::IosEffect | UsageOptions::IosFull
-    ) {
-        if let Err(e) = check_idevicesyslog_available() {
-            eprintln!("{}", e);
-            std::process::exit(1);
-        }
+    ) && let Err(e) = check_idevicesyslog_available()
+    {
+        eprintln!("{}", e);
+        std::process::exit(1);
     }
 
     // check if adb is available for Android option
     if matches!(
         usage_option,
         UsageOptions::Android | UsageOptions::AndroidEffect
-    ) {
-        if let Err(e) = check_adb_available() {
-            eprintln!("{}", e);
-            std::process::exit(1);
-        }
+    ) && let Err(e) = check_adb_available()
+    {
+        eprintln!("{}", e);
+        std::process::exit(1);
     }
 
     let mut terminal = setup_terminal()?;

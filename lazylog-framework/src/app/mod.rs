@@ -632,10 +632,8 @@ impl Widget for &mut App {
             (60, 40)
         } else if self.hard_focused_block_id == self.details_block.id() {
             (40, 60)
-        } else if self.hard_focused_block_id == self.logs_block.id() {
-            (60, 40)
         } else {
-            (60, 40) // default for debug block or any other case
+            (60, 40) // default for logs block or any other case
         };
 
         let [logs_area, details_area] = Layout::vertical([
