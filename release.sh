@@ -17,7 +17,7 @@ echo "Running cargo fmt"
 cargo fmt
 
 echo "Running cargo clippy"
-cargo clippy --release -- -D warnings
+cargo clippy --all-targets --all-features -- -D warnings
 
 echo "Committing version bump"
 git add -A
