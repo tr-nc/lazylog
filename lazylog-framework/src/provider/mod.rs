@@ -57,7 +57,7 @@ use std::{
 ///
 /// `poll_logs()` **must be non-blocking**. If no new logs are available, return
 /// an empty `Vec` immediately. The framework calls `poll_logs()` repeatedly at
-/// the configured interval (default: 100ms).
+/// the configured interval.
 ///
 /// # Thread Safety
 ///
@@ -193,7 +193,7 @@ pub trait LogProvider: Send {
 /// - `provider`: Your [`LogProvider`] implementation
 /// - `parser`: A [`LogParser`] to parse raw strings
 /// - `producer`: Ring buffer producer (framework-managed)
-/// - `poll_interval`: How often to call `poll_logs()` (e.g., 100ms)
+/// - `poll_interval`: How often to call `poll_logs()`
 ///
 /// # Returns
 ///

@@ -31,7 +31,7 @@
 //!
 //! ### Non-blocking Architecture
 //!
-//! The provider runs in a background thread, polling at configurable intervals (default: 100ms).
+//! The provider runs in a background thread, polling at configurable intervals.
 //! The main thread handles UI rendering and user input, keeping the interface responsive.
 //!
 //! ## Quick Start

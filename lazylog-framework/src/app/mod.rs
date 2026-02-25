@@ -34,7 +34,7 @@ mod scrolling;
 mod selection;
 
 // constants
-const DEFAULT_POLL_INTERVAL_MS: u64 = 100;
+const DEFAULT_POLL_INTERVAL_MS: u64 = 20;
 const DEFAULT_EVENT_POLL_INTERVAL_MS: u64 = 16;
 const DEFAULT_RING_BUFFER_SIZE: usize = 16384;
 const HELP_POPUP_WIDTH: u16 = 60;
