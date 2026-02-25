@@ -35,6 +35,7 @@ mod selection;
 
 // constants
 const DEFAULT_POLL_INTERVAL_MS: u64 = 100;
+const DEFAULT_EVENT_POLL_INTERVAL_MS: u64 = 16;
 const DEFAULT_RING_BUFFER_SIZE: usize = 16384;
 const HELP_POPUP_WIDTH: u16 = 60;
 const SCROLL_PAD: usize = 1;
@@ -44,6 +45,7 @@ const DISPLAY_EVENT_DURATION_MS: u64 = 800;
 #[derive(Clone)]
 pub struct AppDesc {
     pub poll_interval: Duration,
+    pub event_poll_interval: Duration,
     pub show_debug_logs: bool,
     pub ring_buffer_size: usize,
     pub initial_filter: Option<String>,
@@ -54,6 +56,7 @@ impl AppDesc {
     pub fn new(parser: Arc<dyn LogParser>) -> Self {
         Self {
             poll_interval: Duration::from_millis(DEFAULT_POLL_INTERVAL_MS),
+            event_poll_interval: Duration::from_millis(DEFAULT_EVENT_POLL_INTERVAL_MS),
             show_debug_logs: false,
             ring_buffer_size: DEFAULT_RING_BUFFER_SIZE,
             initial_filter: None,
