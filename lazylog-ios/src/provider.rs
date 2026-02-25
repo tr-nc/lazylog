@@ -171,7 +171,8 @@ impl IosLogProvider {
                         "No iOS device found (exit status: {}), retrying in 1s...",
                         status
                     );
-                    Self::sleep_interruptible(std::time::Duration::from_secs(1), &should_stop).await;
+                    Self::sleep_interruptible(std::time::Duration::from_secs(1), &should_stop)
+                        .await;
                     continue;
                 }
                 Ok(None) => {
