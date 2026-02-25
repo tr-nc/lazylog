@@ -54,6 +54,8 @@ jobs:
           files: target/release/lazylog-macos.tar.gz
           # Specify the tag name explicitly so the release action knows which tag to attach to
           tag_name: ${{ github.ref_name }}
+          # Auto generate release notes
+          generate_release_notes: true
 
   update-homebrew:
     name: Update Homebrew Formula
