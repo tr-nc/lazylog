@@ -54,3 +54,21 @@ jobs:
           files: target/release/zl-macos.tar.gz
           # Specify the tag name explicitly so the release action knows which tag to attach to
           tag_name: ${{ github.ref_name }}
+
+  update-homebrew:
+    name: Update Homebrew Formula
+    needs: release # Wait for the release job to finish uploading the tarball
+    runs-on: ubuntu-latest # This action requires a Linux runner
+    # Only run this if a tag was pushed (we don't want to update Homebrew on manual branch builds)
+    if: startsWith(github.ref, 'refs/tags/') 
+    
+    steps:
+      - name: Bump Homebrew formula
+        uses: mislav/bump-homebrew-formula-action@v3
+        with:
+          formula-name: lazylog
+          homebrew-tap: tr-nc/homebrew-tap
+          # github.ref_name contains the tag name (e.g., v0.5.3)
+          download-url: https://github.com/tr-nc/lazylog/releases/download/${{ github.ref_name }}/zl-macos.tar.gz
+        env:
+          COMMITTER_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
