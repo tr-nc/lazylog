@@ -1,20 +1,20 @@
 use crossterm::event;
 use lazylog_android::{AndroidEffectParser, AndroidLogProvider, AndroidParser};
 use lazylog_dyeh::{DyehLogProvider, DyehParser};
-use lazylog_framework::{start_with_desc, AppDesc};
+use lazylog_framework::{AppDesc, start_with_desc};
 use lazylog_ios::{IosEffectParser, IosFullParser, IosLogProvider};
 use ratatui::{
+    Terminal,
     backend::CrosstermBackend,
     crossterm::{
         event::{DisableMouseCapture, EnableMouseCapture},
         execute,
         style::{Color, ResetColor, SetBackgroundColor},
         terminal::{
-            disable_raw_mode, enable_raw_mode, Clear, ClearType, EnterAlternateScreen,
-            LeaveAlternateScreen,
+            Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
+            enable_raw_mode,
         },
     },
-    Terminal,
 };
 use std::env;
 use std::io;
