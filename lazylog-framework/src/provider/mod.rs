@@ -289,7 +289,7 @@ where
                 }
             }
 
-            thread::sleep(poll_interval);
+            sleep_interruptible(poll_interval, &should_stop_clone);
         }
 
         if let Err(e) = provider.stop() {
@@ -300,4 +300,24 @@ where
     });
 
     (handle, should_stop)
+}
+
+fn sleep_interruptible(duration: Duration, should_stop: &AtomicBool) {
+    const CHECK_INTERVAL_MS: u64 = 25;
+    let check_interval = Duration::from_millis(CHECK_INTERVAL_MS);
+
+    if duration <= check_interval {
+        thread::sleep(duration);
+        return;
+    }
+
+    let mut elapsed = Duration::ZERO;
+    while elapsed < duration {
+        if should_stop.load(Ordering::Relaxed) {
+            break;
+        }
+        let sleep_time = check_interval.min(duration - elapsed);
+        thread::sleep(sleep_time);
+        elapsed += sleep_time;
+    }
 }
