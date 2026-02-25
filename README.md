@@ -6,19 +6,22 @@ Lazylog provides instant log file access with structured parsing, smooth scrolli
 
 ## Features
 
+- **Multiple log sources** - Support for DYEH file logs, iOS device logs, and Android device logs
 - **Real-time monitoring** - Automatically follows log updates like `tail -f`
-- **Vim-like navigation** - Use `j/k` for circular navigation or arrow keys for traditional movement
+- **Vim-like navigation** - Use `j/k` or arrow keys for navigation, `h/l` for horizontal scrolling
 - **Smart log parsing** - Automatically detects timestamps, log levels, tags, and messages
 - **Color-coded severity** - Visual distinction between DEBUG, INFO, WARN, ERROR, and FATAL levels
-- **Memory efficient** - Handles large files with memory-mapped access and bounded buffers
+- **Memory efficient** - Handles large files with memory-mapped access and ring buffers (16K capacity)
 - **Cross-platform** - Runs on Linux, macOS, and Windows
+- **Framework library** - `lazylog-framework` available as a reusable crate for custom log viewers
 
 ## Installation
 
 ### Prerequisites
 
 - Rust toolchain 1.77+ ([install via rustup](https://rustup.rs))
-- **VS Code terminal** - This program is developed and tested specifically for VS Code's integrated terminal. It may be buggy when run in macOS Terminal or other terminal emulators.
+- **iOS support** (optional): Requires `idevicesyslog` - install via `brew install libimobiledevice` on macOS
+- **Android support** (optional): Requires `adb` - install via `brew install android-platform-tools` on macOS
 
 ### Build from source
 
@@ -26,6 +29,9 @@ Lazylog provides instant log file access with structured parsing, smooth scrolli
 git clone https://github.com/tr-nc/lazylog.git
 cd lazylog
 cargo build --release
+
+# Run the built binary
+./target/release/lazylog --help
 ```
 
 ## Usage
@@ -33,42 +39,62 @@ cargo build --release
 ### Basic usage
 
 ```bash
-# Run lazylog (automatically monitors ~/Library/Application Support/DouyinAR/Logs/previewLog)
+# Run lazylog with DYEH log provider (default)
 cargo run
+
+# Use iOS log provider
+cargo run -- --ios
+
+# Use iOS log provider (effect mode)
+cargo run -- --ios-effect
+
+# Use Android log provider
+cargo run -- --android
+
+# Use Android log provider (effect mode)
+cargo run -- --android-effect
+
+# Apply filter on startup
+cargo run -- --filter "ERROR"
 ```
 
 ### Key bindings
 
-| Key | Action |
-|-----|--------|
-| `j`/`k` or `↑`/`↓` | Navigate up/down through log items |
-| `g` | Go to first (newest) log item |
-| `G` | Go to last (oldest) log item |
-| `[`/`]` | Decrease/increase detail level (0-4) |
-| `/` | Enter filter mode |
-| `y` | Yank (copy) current log item to clipboard |
-| `a` | Yank (copy) all displayed logs to clipboard |
-| `c` | Clear all logs |
-| `w` | Toggle text wrapping |
-| `m` | Toggle mouse capture (disable to select/copy text) |
-| `f` | Fold logs (not implemented) |
-| `q` or `Esc` | Quit |
-| `Ctrl+C` | Force quit |
-| Mouse scroll | Scroll through logs or focused panel |
-| Mouse click | Focus panel and select item |
+| Key                  | Action                                             |
+| -------------------- | -------------------------------------------------- |
+| `j`/`k` or `↑`/`↓`   | Navigate up/down through log items                 |
+| `d`                  | Jump to bottom (newest) log item                   |
+| `h`/`l` or `←`/`→`   | Horizontal scrolling (left/right)                  |
+| `Space`              | Make selected log visible in view                  |
+| `[`/`]`              | Decrease/increase detail level (0-4)               |
+| `/`                  | Enter filter mode                                  |
+| `y`                  | Yank (copy) current log item to clipboard          |
+| `a`                  | Yank (copy) all displayed logs to clipboard        |
+| `c`                  | Clear all logs                                     |
+| `w`                  | Toggle text wrapping                               |
+| `m`                  | Toggle mouse capture (disable to select/copy text) |
+| `b`                  | Toggle debug logs visibility                       |
+| `1`/`2`/`3`          | Focus logs/details/debug panel                     |
+| `?`                  | Show/hide help popup                               |
+| `Esc`                | Go back / Clear filter                             |
+| `q`                  | Quit                                               |
+| `Ctrl+C`             | Quit                                               |
+| Mouse scroll         | Vertical scrolling through logs or focused panel   |
+| Shift + Mouse scroll | Horizontal scrolling                               |
+| Mouse click          | Focus panel, select item, or drag scrollbar        |
 
 ### Filter mode
 
 - Type to filter logs by content
-- `Enter` - Apply filter
-- `Esc` - Cancel filter and show all logs
+- `Enter` - Apply filter and exit filter mode
+- `Esc` - Cancel filter and exit filter mode
 
 ### Navigation
 
-- **Logs panel**: Navigate through log items, newest at top
-- **Details panel**: Shows expanded details for selected log item
-- **Debug panel**: Shows application debug messages
-- Use mouse to focus different panels and scroll within them
+- **Logs panel**: Navigate through log items, newest at top (focus with `1`)
+- **Details panel**: Shows expanded details for selected log item (focus with `2`)
+- **Debug panel**: Shows application debug messages (focus with `3`, toggle with `b`)
+- Use mouse click or `1`/`2`/`3` to focus different panels and scroll within them
 
 ## Development
 
@@ -86,6 +112,12 @@ cargo build
 
 # Build release version
 cargo build --release
+
+# Run tests
+cargo test
+
+# Run linter
+cargo clippy
 ```
 
 ## Publish framework
