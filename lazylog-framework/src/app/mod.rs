@@ -241,11 +241,18 @@ impl App {
         desc: &AppDesc,
     ) -> Result<()> {
         let poll_interval = desc.poll_interval;
+        let event_poll_interval = desc.event_poll_interval;
+        let mut last_update_logs = Instant::now();
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<()> {
             while !self.is_exiting {
-                self.poll_event(poll_interval)?;
-                self.update_logs()?;
+                self.poll_event(event_poll_interval)?;
+
+                if last_update_logs.elapsed() >= poll_interval {
+                    self.update_logs()?;
+                    last_update_logs = Instant::now();
+                }
+
                 self.check_and_clear_expired_event();
                 terminal.draw(|frame| frame.render_widget(&mut self, frame.area()))?;
             }
