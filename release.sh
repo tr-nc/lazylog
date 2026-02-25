@@ -16,8 +16,8 @@ sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
 echo "Running cargo fmt"
 cargo fmt
 
-echo "Running cargo check"
-cargo check
+echo "Running cargo clippy"
+cargo clippy --release -- -D warnings
 
 echo "Committing version bump"
 git add -A
