@@ -13,18 +13,21 @@ VERSION="$1"
 echo "Updating version to $VERSION in Cargo.toml"
 sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
 
+echo "Running cargo fmt"
+cargo fmt
+
 echo "Running cargo check"
 cargo check
 
 echo "Committing version bump"
-git add Cargo.toml
+git add -A
 git commit -m "bump version to $VERSION"
 
 echo "Creating tag v$VERSION"
 git tag "v$VERSION"
 
-echo "Pushing to remote tr-nc"
-git push tr-nc
-git push tr-nc "v$VERSION"
+echo "Pushing to remote origin"
+git push origin
+git push origin "v$VERSION"
 
 echo "Release v$VERSION created and pushed!"
