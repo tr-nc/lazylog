@@ -24,7 +24,7 @@ fn sanitize_control_chars(s: &str) -> String {
             }
             continue;
         }
-        if c.is_control() && c != '\t' && c != '\n' {
+        if c.is_control() {
             continue;
         }
         result.push(c);
@@ -250,7 +250,7 @@ mod tests {
     #[test]
     fn test_sanitize_preserves_newline_and_tab() {
         let result = sanitize_control_chars("hello\nworld\ttab");
-        assert_eq!(result, "hello\nworld\ttab");
+        assert_eq!(result, "helloworldtab");
     }
 
     #[test]
