@@ -25,7 +25,6 @@ impl DisplayEvent {
         self.start_time.elapsed() >= self.duration
     }
 
-    /// Create a display event with the given text, duration, and optional style
     pub fn create(
         text: String,
         duration: Duration,
@@ -36,7 +35,6 @@ impl DisplayEvent {
         Self::new(text, duration, event_style)
     }
 
-    /// Check if a display event has expired and return None if so
     pub fn check_and_clear(event: Option<Self>) -> Option<Self> {
         match event {
             Some(e) if e.is_expired() => None,
@@ -45,43 +43,86 @@ impl DisplayEvent {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum StatusGravity {
+    Left,
+    Right,
+}
+
+#[derive(Clone, Default)]
+pub struct StatusStyle {
+    pub fg: Option<Color>,
+    pub bg: Option<Color>,
+}
+
+impl StatusStyle {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn fg(mut self, color: Color) -> Self {
+        self.fg = Some(color);
+        self
+    }
+
+    pub fn bg(mut self, color: Color) -> Self {
+        self.bg = Some(color);
+        self
+    }
+
+    pub fn to_style(&self) -> Style {
+        let mut style = Style::default();
+        if let Some(fg) = self.fg {
+            style = style.fg(fg);
+        }
+        if let Some(bg) = self.bg {
+            style = style.bg(bg);
+        }
+        style
+    }
+}
+
+struct StatusSegment {
+    text: String,
+    style: StatusStyle,
+}
+
 pub struct StatusBar {
-    left: String,
+    left_segments: Vec<StatusSegment>,
     mid: String,
-    right: String,
+    right_segments: Vec<StatusSegment>,
     bg_color: Option<Color>,
-    left_fg: Option<Color>,
     mid_fg: Option<Color>,
-    right_fg: Option<Color>,
     style: Option<Style>,
 }
 
 impl StatusBar {
     pub fn new() -> Self {
         Self {
-            left: String::new(),
+            left_segments: Vec::new(),
             mid: String::new(),
-            right: String::new(),
+            right_segments: Vec::new(),
             bg_color: None,
-            left_fg: None,
             mid_fg: None,
-            right_fg: None,
             style: None,
         }
     }
 
-    pub fn set_left(mut self, text: String) -> Self {
-        self.left = text;
+    pub fn add_status(mut self, gravity: StatusGravity, text: String, style: StatusStyle) -> Self {
+        let segment = StatusSegment { text, style };
+        match gravity {
+            StatusGravity::Left => self.left_segments.push(segment),
+            StatusGravity::Right => self.right_segments.push(segment),
+        }
         self
+    }
+
+    pub fn add_status_plain(self, gravity: StatusGravity, text: &str) -> Self {
+        self.add_status(gravity, text.to_string(), StatusStyle::new())
     }
 
     pub fn set_mid(mut self, text: String) -> Self {
         self.mid = text;
-        self
-    }
-
-    pub fn set_right(mut self, text: String) -> Self {
-        self.right = text;
         self
     }
 
@@ -92,20 +133,8 @@ impl StatusBar {
     }
 
     #[allow(dead_code)]
-    pub fn set_left_fg(mut self, color: Color) -> Self {
-        self.left_fg = Some(color);
-        self
-    }
-
-    #[allow(dead_code)]
     pub fn set_mid_fg(mut self, color: Color) -> Self {
         self.mid_fg = Some(color);
-        self
-    }
-
-    #[allow(dead_code)]
-    pub fn set_right_fg(mut self, color: Color) -> Self {
-        self.right_fg = Some(color);
         self
     }
 
@@ -114,40 +143,43 @@ impl StatusBar {
         self
     }
 
+    fn build_gravity_spans<'a>(
+        segments: &'a [StatusSegment],
+        sep: &'a str,
+    ) -> (Vec<Span<'a>>, usize) {
+        let mut spans = Vec::new();
+        let mut total_len = 0;
+        for (i, seg) in segments.iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::raw(sep));
+                total_len += sep.chars().count();
+            }
+            let style = seg.style.to_style();
+            spans.push(Span::styled(seg.text.as_str(), style));
+            total_len += seg.text.chars().count();
+        }
+        (spans, total_len)
+    }
+
     pub fn render(self, area: Rect, buf: &mut Buffer) {
         let total_width = area.width as usize;
-        let left_len = self.left.chars().count();
+        let sep = " | ";
+
+        let (left_spans, left_len) = Self::build_gravity_spans(&self.left_segments, sep);
+        let (right_spans, right_len) = Self::build_gravity_spans(&self.right_segments, sep);
         let mid_len = self.mid.chars().count();
-        let right_len = self.right.chars().count();
 
-        // calculate where middle text should start to be truly centered
         let mid_center_start = total_width.saturating_sub(mid_len) / 2;
-
-        // calculate padding from left content to centered middle
         let left_to_mid_padding = mid_center_start.saturating_sub(left_len);
 
-        // calculate where middle text ends
-        let mid_end = mid_center_start.saturating_add(mid_len);
-
-        // calculate where right content should start (from the right edge)
         let right_start = total_width.saturating_sub(right_len);
-
-        // calculate padding from middle to right
+        let mid_end = mid_center_start + mid_len;
         let mid_to_right_padding = right_start.saturating_sub(mid_end);
 
-        // build spans with individual foreground colors
         let mut spans = vec![];
-
-        // left span
-        let left_span = if let Some(fg) = self.left_fg {
-            Span::styled(self.left, Style::default().fg(fg))
-        } else {
-            Span::raw(self.left)
-        };
-        spans.push(left_span);
+        spans.extend(left_spans);
         spans.push(Span::raw(" ".repeat(left_to_mid_padding)));
 
-        // mid span
         let mid_span = if let Some(fg) = self.mid_fg {
             Span::styled(self.mid, Style::default().fg(fg))
         } else {
@@ -156,17 +188,10 @@ impl StatusBar {
         spans.push(mid_span);
         spans.push(Span::raw(" ".repeat(mid_to_right_padding)));
 
-        // right span (dimmed by default if no color specified)
-        let right_span = if let Some(fg) = self.right_fg {
-            Span::styled(self.right, Style::default().fg(fg))
-        } else {
-            Span::raw(self.right)
-        };
-        spans.push(right_span);
+        spans.extend(right_spans);
 
         let line = Line::from(spans);
 
-        // apply uniform background color and custom style
         let mut base_style = Style::default();
         if let Some(bg) = self.bg_color {
             base_style = base_style.bg(bg);

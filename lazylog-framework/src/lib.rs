@@ -207,9 +207,9 @@ pub(crate) mod content_line_maker;
 pub(crate) mod filter;
 pub(crate) mod log_list;
 pub(crate) mod log_parser;
-pub(crate) mod status_bar;
 pub(crate) mod theme;
 pub(crate) mod ui_logger;
+pub mod status_bar;
 
 // public API for running the application
 pub use app::{AppDesc, start_with_desc, start_with_provider};

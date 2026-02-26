@@ -2,7 +2,6 @@ use super::{App, HELP_POPUP_WIDTH, ScrollableBlockType};
 use crate::{
     app_block::AppBlock,
     content_line_maker::{WrappingMode, calculate_content_width, content_into_lines},
-    status_bar::StatusBar,
     theme,
 };
 use anyhow::Result;
@@ -120,7 +119,8 @@ fn find_word_at_display_column(text: &str, display_col: usize) -> Option<String>
 
 impl App {
     pub(super) fn render_footer(&self, area: Rect, buf: &mut Buffer) -> Result<()> {
-        // determine middle text (help, filter, or display event)
+        use crate::status_bar::{StatusBar, StatusGravity, StatusStyle};
+
         let (mid_text, custom_style) = if let Some(event) = &self.display_event {
             (event.text.clone(), Some(event.style))
         } else if !self.filter_input.is_empty() {
@@ -129,36 +129,25 @@ impl App {
             ("?: help | q: quit".to_string(), None)
         };
 
-        // build left side status (wrap mode)
-        let left_text = if self.display_event.is_none() && self.filter_input.is_empty() {
-            if self.text_wrapping_enabled {
-                "wrap on".to_string()
+        let mut status_bar = StatusBar::new().set_mid(mid_text);
+
+        if self.display_event.is_none() && self.filter_input.is_empty() {
+            let wrap_text = if self.text_wrapping_enabled {
+                "wrap on"
             } else {
-                "wrap off".to_string()
+                "wrap off"
+            };
+            status_bar = status_bar.add_status_plain(StatusGravity::Left, wrap_text);
+
+            let version_text = format!("lazylog v{}", env!("CARGO_PKG_VERSION"));
+            if let Some(mode) = &self.mode_name {
+                status_bar = status_bar
+                    .add_status(StatusGravity::Right, mode.clone(), StatusStyle::new().fg(Color::Gray))
+                    .add_status_plain(StatusGravity::Right, &version_text)
+            } else {
+                status_bar = status_bar.add_status_plain(StatusGravity::Right, &version_text);
             }
-        } else {
-            String::new()
-        };
-
-        // build right side status (version)
-        let right_text = if self.display_event.is_none() && self.filter_input.is_empty() {
-            let mode_str = self
-                .mode_name
-                .as_ref()
-                .map(|m| format!("{} | ", m))
-                .unwrap_or_default();
-            format!("{}lazylog v{}", mode_str, env!("CARGO_PKG_VERSION"))
-        } else {
-            String::new()
-        };
-
-        // create and render status bar
-        let mut status_bar = StatusBar::new()
-            .set_left(left_text)
-            .set_mid(mid_text)
-            .set_right(right_text)
-            .set_left_fg(Color::Gray)
-            .set_right_fg(Color::Gray);
+        }
 
         if let Some(style) = custom_style {
             status_bar = status_bar.set_style(style);
