@@ -12,12 +12,12 @@ use uuid::Uuid;
 fn brighten_color(color: Color) -> Color {
     match color {
         Color::Rgb(r, g, b) => {
-            let r = r.saturating_add(80).min(255);
-            let g = g.saturating_add(80).min(255);
-            let b = b.saturating_add(80).min(255);
+            let r = r.saturating_add(10).min(255);
+            let g = g.saturating_add(10).min(255);
+            let b = b.saturating_add(10).min(255);
             Color::Rgb(r, g, b)
         }
-        Color::Gray => Color::White,
+        Color::Gray => Color::Gray,
         c => c,
     }
 }
