@@ -364,7 +364,7 @@ impl App {
             .render(content_area, buf);
 
         // render vertical scrollbar
-        let scrollbar = AppBlock::create_scrollbar(is_focused);
+        let scrollbar = AppBlock::create_scrollbar(is_focused, self.mode_color);
         let block_ref = match block_type {
             ScrollableBlockType::Details => &mut self.details_block,
             ScrollableBlockType::Debug => &mut self.debug_block,
@@ -378,9 +378,9 @@ impl App {
 
         // render horizontal scrollbar (track-only when not needed)
         let horizontal_scrollbar = if needs_horizontal_scrollbar {
-            AppBlock::create_horizontal_scrollbar(is_focused)
+            AppBlock::create_horizontal_scrollbar(is_focused, self.mode_color)
         } else {
-            AppBlock::create_horizontal_track_only(is_focused)
+            AppBlock::create_horizontal_track_only(is_focused, self.mode_color)
         };
         StatefulWidget::render(
             horizontal_scrollbar,
@@ -590,7 +590,7 @@ impl App {
             .scroll((0, h_scroll))
             .render(main_content_area, buf);
 
-        let scrollbar = AppBlock::create_scrollbar(is_log_focused);
+        let scrollbar = AppBlock::create_scrollbar(is_log_focused, self.mode_color);
         let logs_block = &mut self.logs_block;
         StatefulWidget::render(
             scrollbar,
@@ -601,9 +601,9 @@ impl App {
 
         // Always render horizontal scrollbar area (track-only when not needed)
         let horizontal_scrollbar = if needs_horizontal_scrollbar {
-            AppBlock::create_horizontal_scrollbar(is_log_focused)
+            AppBlock::create_horizontal_scrollbar(is_log_focused, self.mode_color)
         } else {
-            AppBlock::create_horizontal_track_only(is_log_focused)
+            AppBlock::create_horizontal_track_only(is_log_focused, self.mode_color)
         };
         StatefulWidget::render(
             horizontal_scrollbar,

@@ -22,6 +22,14 @@ fn brighten_color(color: Color) -> Color {
     }
 }
 
+pub fn get_border_color(focused: bool, mode_color: Color) -> Color {
+    if focused {
+        brighten_color(mode_color)
+    } else {
+        mode_color
+    }
+}
+
 pub struct AppBlock {
     #[allow(dead_code)]
     id: Uuid,
@@ -176,8 +184,8 @@ impl AppBlock {
     }
 
     /// Creates a uniform scrollbar widget with consistent styling
-    pub fn create_scrollbar(focused: bool) -> Scrollbar<'static> {
-        let color = if focused { Color::White } else { Color::Gray };
+    pub fn create_scrollbar(focused: bool, mode_color: Color) -> Scrollbar<'static> {
+        let color = get_border_color(focused, mode_color);
 
         Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .symbols(scrollbar::VERTICAL)
@@ -189,8 +197,8 @@ impl AppBlock {
     }
 
     /// Creates a horizontal scrollbar widget with consistent styling
-    pub fn create_horizontal_scrollbar(focused: bool) -> Scrollbar<'static> {
-        let color = if focused { Color::White } else { Color::Gray };
+    pub fn create_horizontal_scrollbar(focused: bool, mode_color: Color) -> Scrollbar<'static> {
+        let color = get_border_color(focused, mode_color);
 
         Scrollbar::new(ScrollbarOrientation::HorizontalBottom)
             .symbols(scrollbar::HORIZONTAL)
@@ -202,8 +210,8 @@ impl AppBlock {
     }
 
     /// Creates a horizontal scrollbar that only shows track (no thumb)
-    pub fn create_horizontal_track_only(focused: bool) -> Scrollbar<'static> {
-        let color = if focused { Color::White } else { Color::Gray };
+    pub fn create_horizontal_track_only(focused: bool, mode_color: Color) -> Scrollbar<'static> {
+        let color = get_border_color(focused, mode_color);
 
         Scrollbar::new(ScrollbarOrientation::HorizontalBottom)
             .symbols(scrollbar::HORIZONTAL)
