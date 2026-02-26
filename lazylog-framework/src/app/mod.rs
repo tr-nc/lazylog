@@ -13,7 +13,7 @@ use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, MouseEvent},
     execute,
 };
-use ratatui::{Terminal, backend::CrosstermBackend, prelude::*, widgets::Widget};
+use ratatui::{backend::CrosstermBackend, prelude::*, widgets::Widget};
 use ringbuf::{
     HeapRb,
     traits::{Consumer, Split},
@@ -51,6 +51,7 @@ pub struct AppDesc {
     pub initial_filter: Option<String>,
     pub parser: Arc<dyn LogParser>,
     pub mode_name: Option<String>,
+    pub mode_color: Option<Color>,
 }
 
 impl AppDesc {
@@ -63,6 +64,7 @@ impl AppDesc {
             initial_filter: None,
             parser,
             mode_name: None,
+            mode_color: None,
         }
     }
 }
@@ -108,6 +110,7 @@ struct App {
     detail_level: LogDetailLevel, // Detail level for log display
     parser: Arc<dyn LogParser>, // Parser for log items (handles both parsing and formatting)
     mode_name: Option<String>, // Mode name to display in status bar
+    mode_color: Color,         // Mode color for borders and status bar
     debug_logs: Arc<Mutex<Vec<String>>>, // Debug log messages for UI display
     hard_focused_block_id: uuid::Uuid, // Hard focus: set by clicking, persists until another click (defaults to logs_block)
     soft_focused_block_id: Option<uuid::Uuid>, // Soft focus: set by hovering, changes with mouse movement
@@ -207,6 +210,7 @@ impl App {
             detail_level: 1, // default detail level (was Basic)
             parser: desc.parser,
             mode_name: desc.mode_name,
+            mode_color: desc.mode_color.unwrap_or_else(|| theme::get_mode_color(&desc.mode_name)),
             debug_logs,
             hard_focused_block_id: logs_block_id,
             soft_focused_block_id: None,
