@@ -6,27 +6,45 @@ pub enum WrappingMode {
     Truncated,
 }
 
-pub fn content_into_lines(content: &str, width: u16, wrapping_mode: WrappingMode) -> Vec<Line<'_>> {
+fn sanitize_control_chars(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_control() && c != '\t' && c != '\n' {
+                '?'
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
+pub fn content_into_lines(
+    content: &str,
+    width: u16,
+    wrapping_mode: WrappingMode,
+) -> Vec<Line<'static>> {
+    let sanitized = sanitize_control_chars(content);
     match wrapping_mode {
-        WrappingMode::Wrapped => wrap_content_to_lines(content, width),
-        WrappingMode::Unwrapped => content_to_unwrapped_lines(content),
-        WrappingMode::Truncated => vec![truncate_content(content, width)],
+        WrappingMode::Wrapped => wrap_content_to_lines(sanitized, width),
+        WrappingMode::Unwrapped => content_to_unwrapped_lines(sanitized),
+        WrappingMode::Truncated => vec![truncate_content(sanitized, width)],
     }
 }
 
 pub fn calculate_content_width(content: &str) -> usize {
-    content
+    let sanitized = sanitize_control_chars(content);
+    sanitized
         .lines()
         .map(|line| line.chars().count())
         .max()
         .unwrap_or(0)
 }
 
-fn content_to_unwrapped_lines(content: &str) -> Vec<Line<'_>> {
-    content.lines().map(Line::from).collect()
+fn content_to_unwrapped_lines(content: String) -> Vec<Line<'static>> {
+    content.lines().map(|s| Line::from(s.to_string())).collect()
 }
 
-fn truncate_content(content: &str, width: u16) -> Line<'_> {
+fn truncate_content(content: String, width: u16) -> Line<'static> {
     if width == 0 {
         return Line::from("");
     }
@@ -35,14 +53,14 @@ fn truncate_content(content: &str, width: u16) -> Line<'_> {
     let first_line = content.lines().next().unwrap_or("");
 
     if first_line.chars().count() <= width {
-        Line::from(first_line)
+        Line::from(first_line.to_string())
     } else {
         let truncated: String = first_line.chars().take(width.saturating_sub(2)).collect();
         Line::from(format!("{}..", truncated))
     }
 }
 
-fn wrap_content_to_lines(content: &str, width: u16) -> Vec<Line<'_>> {
+fn wrap_content_to_lines(content: String, width: u16) -> Vec<Line<'static>> {
     if width == 0 {
         return vec![];
     }
@@ -77,33 +95,33 @@ mod tests {
 
     #[test]
     fn test_empty_content() {
-        let result = wrap_content_to_lines("", 10);
+        let result = wrap_content_to_lines("".to_string(), 10);
         assert_eq!(result.len(), 0);
     }
 
     #[test]
     fn test_zero_width() {
-        let result = wrap_content_to_lines("hello", 0);
+        let result = wrap_content_to_lines("hello".to_string(), 0);
         assert_eq!(result.len(), 0);
     }
 
     #[test]
     fn test_short_content() {
-        let result = wrap_content_to_lines("hello", 10);
+        let result = wrap_content_to_lines("hello".to_string(), 10);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].to_string(), "hello");
     }
 
     #[test]
     fn test_exact_width() {
-        let result = wrap_content_to_lines("hello", 5);
+        let result = wrap_content_to_lines("hello".to_string(), 5);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].to_string(), "hello");
     }
 
     #[test]
     fn test_long_content() {
-        let result = wrap_content_to_lines("hello world", 5);
+        let result = wrap_content_to_lines("hello world".to_string(), 5);
         assert_eq!(result.len(), 3);
         assert_eq!(result[0].to_string(), "hello");
         assert_eq!(result[1].to_string(), " worl");
@@ -112,7 +130,7 @@ mod tests {
 
     #[test]
     fn test_newline_handling() {
-        let result = wrap_content_to_lines("hello\nworld", 10);
+        let result = wrap_content_to_lines("hello\nworld".to_string(), 10);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].to_string(), "hello");
         assert_eq!(result[1].to_string(), "world");
@@ -120,7 +138,7 @@ mod tests {
 
     #[test]
     fn test_multiple_newlines() {
-        let result = wrap_content_to_lines("hello\n\nworld", 10);
+        let result = wrap_content_to_lines("hello\n\nworld".to_string(), 10);
         assert_eq!(result.len(), 3);
         assert_eq!(result[0].to_string(), "hello");
         assert_eq!(result[1].to_string(), "");
@@ -129,7 +147,10 @@ mod tests {
 
     #[test]
     fn test_very_long_content() {
-        let result = wrap_content_to_lines("this is a very long line that needs to be wrapped", 10);
+        let result = wrap_content_to_lines(
+            "this is a very long line that needs to be wrapped".to_string(),
+            10,
+        );
         assert_eq!(result.len(), 5);
         assert_eq!(result[0].to_string(), "this is a ");
         assert_eq!(result[1].to_string(), "very long ");
@@ -203,5 +224,23 @@ mod tests {
         let result = content_into_lines("hello", 0, WrappingMode::Truncated);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].to_string(), "");
+    }
+
+    #[test]
+    fn test_sanitize_control_chars() {
+        let result = sanitize_control_chars("hello\rworld");
+        assert_eq!(result, "hello?world");
+    }
+
+    #[test]
+    fn test_sanitize_preserves_newline_and_tab() {
+        let result = sanitize_control_chars("hello\nworld\ttab");
+        assert_eq!(result, "hello\nworld\ttab");
+    }
+
+    #[test]
+    fn test_sanitize_removes_ansi_escape() {
+        let result = sanitize_control_chars("hello\x1b[31mworld");
+        assert_eq!(result, "hello?[31mworld");
     }
 }
