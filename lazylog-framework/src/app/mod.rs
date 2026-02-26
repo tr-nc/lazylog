@@ -132,6 +132,7 @@ struct App {
 
     mouse_event: Option<MouseEvent>,
     dragging_scrollbar_block: Option<uuid::Uuid>,
+    dragging_scrollbar_axis: Option<ScrollbarAxis>,
     suppress_mouse_up: bool,
     last_click_time: Option<Instant>,
     last_click_pos: Option<(u16, u16)>,
@@ -141,6 +142,12 @@ struct App {
 pub(super) enum ScrollableBlockType {
     Details,
     Debug,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub(super) enum ScrollbarAxis {
+    Vertical,
+    Horizontal,
 }
 
 // ============================================================================
@@ -237,6 +244,7 @@ impl App {
 
             mouse_event: None,
             dragging_scrollbar_block: None,
+            dragging_scrollbar_axis: None,
             suppress_mouse_up: false,
             last_click_time: None,
             last_click_pos: None,
@@ -524,6 +532,7 @@ impl App {
             execute!(stdout, DisableMouseCapture)?;
             self.mouse_event = None;
             self.dragging_scrollbar_block = None;
+            self.dragging_scrollbar_axis = None;
             self.suppress_mouse_up = false;
         }
 
@@ -569,6 +578,8 @@ impl App {
             self.last_logs_area
         } else if block_id == self.details_block.id() {
             self.last_details_area
+        } else if block_id == self.debug_block.id() {
+            self.last_debug_area
         } else {
             None
         }?;
@@ -581,17 +592,67 @@ impl App {
         Some(scrollbar_area)
     }
 
-    fn get_scrollbar_block_under_mouse(&self, mouse: &MouseEvent) -> Option<uuid::Uuid> {
+    fn get_horizontal_scrollbar_area(&self, block_id: uuid::Uuid) -> Option<Rect> {
+        let area = if block_id == self.logs_block.id() {
+            self.last_logs_area
+        } else if block_id == self.details_block.id() {
+            self.last_details_area
+        } else if block_id == self.debug_block.id() {
+            self.last_debug_area
+        } else {
+            None
+        }?;
+
+        let [main_content_area, _] =
+            Layout::horizontal([Constraint::Fill(1), Constraint::Length(1)])
+                .margin(0)
+                .areas(area);
+
+        let [_content_area, horizontal_scrollbar_area] = Layout::vertical([
+            Constraint::Fill(1),
+            Constraint::Length(1),
+        ])
+        .margin(0)
+        .areas(main_content_area);
+
+        Some(horizontal_scrollbar_area)
+    }
+
+    fn get_scrollbar_block_under_mouse(&self, mouse: &MouseEvent) -> Option<(uuid::Uuid, ScrollbarAxis)> {
         if let Some(area) = self.get_vertical_scrollbar_area(self.logs_block.id())
             && self.is_mouse_in_area(mouse, area)
         {
-            return Some(self.logs_block.id());
+            return Some((self.logs_block.id(), ScrollbarAxis::Vertical));
         }
 
         if let Some(area) = self.get_vertical_scrollbar_area(self.details_block.id())
             && self.is_mouse_in_area(mouse, area)
         {
-            return Some(self.details_block.id());
+            return Some((self.details_block.id(), ScrollbarAxis::Vertical));
+        }
+
+        if let Some(area) = self.get_vertical_scrollbar_area(self.debug_block.id())
+            && self.is_mouse_in_area(mouse, area)
+        {
+            return Some((self.debug_block.id(), ScrollbarAxis::Vertical));
+        }
+
+        if let Some(area) = self.get_horizontal_scrollbar_area(self.logs_block.id())
+            && self.is_mouse_in_area(mouse, area)
+        {
+            return Some((self.logs_block.id(), ScrollbarAxis::Horizontal));
+        }
+
+        if let Some(area) = self.get_horizontal_scrollbar_area(self.details_block.id())
+            && self.is_mouse_in_area(mouse, area)
+        {
+            return Some((self.details_block.id(), ScrollbarAxis::Horizontal));
+        }
+
+        if let Some(area) = self.get_horizontal_scrollbar_area(self.debug_block.id())
+            && self.is_mouse_in_area(mouse, area)
+        {
+            return Some((self.debug_block.id(), ScrollbarAxis::Horizontal));
         }
 
         None

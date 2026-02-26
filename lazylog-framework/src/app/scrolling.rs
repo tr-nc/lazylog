@@ -340,4 +340,150 @@ impl App {
 
         Ok(())
     }
+
+    pub(super) fn handle_horizontal_scrollbar_drag(
+        &mut self,
+        block_id: uuid::Uuid,
+        mouse_column: u16,
+    ) -> Result<()> {
+        if block_id == self.logs_block.id() {
+            let Some(area) = self.last_logs_area else {
+                return Ok(());
+            };
+
+            let [main_content_area, _] =
+                Layout::horizontal([Constraint::Fill(1), Constraint::Length(1)])
+                    .margin(0)
+                    .areas(area);
+
+            let [content_area, horizontal_scrollbar_area] =
+                Layout::vertical([Constraint::Fill(1), Constraint::Length(1)])
+                    .margin(0)
+                    .areas(main_content_area);
+
+            let is_focused = self.get_display_focused_block() == self.logs_block.id();
+            let content_rect =
+                self.logs_block
+                    .get_content_rect(content_area, is_focused, self.mode_color);
+            let viewport_width = content_rect.width as usize;
+            let content_width = self.logs_block.get_content_width();
+
+            if content_width <= viewport_width {
+                return Ok(());
+            }
+
+            let track_width = horizontal_scrollbar_area.width.saturating_sub(1);
+            let relative_column = mouse_column
+                .saturating_sub(horizontal_scrollbar_area.x)
+                .min(track_width);
+            let track_width = track_width as usize;
+
+            let max_scroll = content_width.saturating_sub(viewport_width);
+            let new_position = if track_width == 0 || max_scroll == 0 {
+                0
+            } else {
+                (relative_column as usize * max_scroll) / track_width
+            };
+
+            self.logs_block
+                .set_horizontal_scroll_position(new_position.min(max_scroll));
+            self.logs_block
+                .update_horizontal_scrollbar_state(content_width, viewport_width);
+            return Ok(());
+        }
+
+        if block_id == self.details_block.id() {
+            let Some(area) = self.last_details_area else {
+                return Ok(());
+            };
+
+            let [main_content_area, _] =
+                Layout::horizontal([Constraint::Fill(1), Constraint::Length(1)])
+                    .margin(0)
+                    .areas(area);
+
+            let [content_area, horizontal_scrollbar_area] =
+                Layout::vertical([Constraint::Fill(1), Constraint::Length(1)])
+                    .margin(0)
+                    .areas(main_content_area);
+
+            let is_focused = self.get_display_focused_block() == self.details_block.id();
+            let content_rect =
+                self.details_block
+                    .get_content_rect(content_area, is_focused, self.mode_color);
+            let viewport_width = content_rect.width as usize;
+            let content_width = self.details_block.get_content_width();
+
+            if content_width <= viewport_width {
+                return Ok(());
+            }
+
+            let track_width = horizontal_scrollbar_area.width.saturating_sub(1);
+            let relative_column = mouse_column
+                .saturating_sub(horizontal_scrollbar_area.x)
+                .min(track_width);
+            let track_width = track_width as usize;
+
+            let max_scroll = content_width.saturating_sub(viewport_width);
+            let new_position = if track_width == 0 || max_scroll == 0 {
+                0
+            } else {
+                (relative_column as usize * max_scroll) / track_width
+            };
+
+            self.details_block
+                .set_horizontal_scroll_position(new_position.min(max_scroll));
+            self.details_block
+                .update_horizontal_scrollbar_state(content_width, viewport_width);
+            return Ok(());
+        }
+
+        if block_id == self.debug_block.id() {
+            let Some(area) = self.last_debug_area else {
+                return Ok(());
+            };
+
+            let [main_content_area, _] =
+                Layout::horizontal([Constraint::Fill(1), Constraint::Length(1)])
+                    .margin(0)
+                    .areas(area);
+
+            let [content_area, horizontal_scrollbar_area] =
+                Layout::vertical([Constraint::Fill(1), Constraint::Length(1)])
+                    .margin(0)
+                    .areas(main_content_area);
+
+            let is_focused = self.get_display_focused_block() == self.debug_block.id();
+            let content_rect =
+                self.debug_block
+                    .get_content_rect(content_area, is_focused, self.mode_color);
+            let viewport_width = content_rect.width as usize;
+            let content_width = self.debug_block.get_content_width();
+
+            if content_width <= viewport_width {
+                return Ok(());
+            }
+
+            let track_width = horizontal_scrollbar_area.width.saturating_sub(1);
+            let relative_column = mouse_column
+                .saturating_sub(horizontal_scrollbar_area.x)
+                .min(track_width);
+            let track_width = track_width as usize;
+
+            let max_scroll = content_width.saturating_sub(viewport_width);
+            let new_position = if track_width == 0 || max_scroll == 0 {
+                0
+            } else {
+                (relative_column as usize * max_scroll) / track_width
+            };
+
+            self.debug_block
+                .set_horizontal_scroll_position(new_position.min(max_scroll));
+            self.debug_block
+                .update_horizontal_scrollbar_state(content_width, viewport_width);
+            return Ok(());
+        }
+
+        Ok(())
+    }
 }
