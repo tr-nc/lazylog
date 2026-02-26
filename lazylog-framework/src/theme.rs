@@ -33,10 +33,10 @@ pub const MODE_COLORS: &[(Option<&str>, Color)] = &[
 pub fn get_mode_color(mode_name: &Option<String>) -> Color {
     if let Some(name) = mode_name {
         for (mode, color) in MODE_COLORS {
-            if let Some(m) = mode {
-                if name.to_lowercase().contains(m) {
-                    return *color;
-                }
+            if let Some(m) = mode
+                && name.to_lowercase().contains(m)
+            {
+                return *color;
             }
         }
     }

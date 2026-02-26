@@ -303,7 +303,8 @@ impl App {
             ScrollableBlockType::Details => &self.details_block,
             ScrollableBlockType::Debug => &self.debug_block,
         };
-        let temp_content_rect = block_ref.get_content_rect(vertical_content_area, is_focused, self.mode_color);
+        let temp_content_rect =
+            block_ref.get_content_rect(vertical_content_area, is_focused, self.mode_color);
         let needs_horizontal_scrollbar = max_content_width > temp_content_rect.width as usize;
 
         // create vertical layout for content and horizontal scrollbar
@@ -431,9 +432,9 @@ impl App {
         let total_lines = self.displaying_logs.len();
 
         // Calculate content first to determine if horizontal scrollbar is needed
-        let temp_inner_area = self
-            .logs_block
-            .get_content_rect(content_area, is_log_focused, self.mode_color);
+        let temp_inner_area =
+            self.logs_block
+                .get_content_rect(content_area, is_log_focused, self.mode_color);
         let viewport_width = temp_inner_area.width as usize;
 
         // Since we're using truncated mode, content will never exceed the viewport width
@@ -451,7 +452,10 @@ impl App {
             let is_left_click = event.kind
                 == crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left)
                 && !self.suppress_mouse_up;
-            let inner_area = self.logs_block.build(false, self.mode_color).inner(main_content_area);
+            let inner_area = self
+                .logs_block
+                .build(false, self.mode_color)
+                .inner(main_content_area);
             let is_within_bounds =
                 inner_area.contains(ratatui::layout::Position::new(event.column, event.row));
 
@@ -475,9 +479,9 @@ impl App {
             self.set_hard_focused_block(logs_block_id);
         }
 
-        let inner_area = self
-            .logs_block
-            .get_content_rect(main_content_area, is_log_focused, self.mode_color);
+        let inner_area =
+            self.logs_block
+                .get_content_rect(main_content_area, is_log_focused, self.mode_color);
         let visible_height = inner_area.height as usize;
         let content_width = inner_area.width as usize;
 
@@ -708,9 +712,9 @@ impl App {
                 .areas(vertical_content_area);
 
             let is_focused = self.get_display_focused_block() == self.details_block.id();
-            let temp_content_rect = self
-                .details_block
-                .get_content_rect(content_area, is_focused, self.mode_color);
+            let temp_content_rect =
+                self.details_block
+                    .get_content_rect(content_area, is_focused, self.mode_color);
 
             let wrapping_mode = if text_wrapping_enabled {
                 WrappingMode::Wrapped

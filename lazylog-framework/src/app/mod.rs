@@ -110,7 +110,7 @@ struct App {
     detail_level: LogDetailLevel, // Detail level for log display
     parser: Arc<dyn LogParser>, // Parser for log items (handles both parsing and formatting)
     mode_name: Option<String>, // Mode name to display in status bar
-    mode_color: Color,         // Mode color for borders and status bar
+    mode_color: Color,    // Mode color for borders and status bar
     debug_logs: Arc<Mutex<Vec<String>>>, // Debug log messages for UI display
     hard_focused_block_id: uuid::Uuid, // Hard focus: set by clicking, persists until another click (defaults to logs_block)
     soft_focused_block_id: Option<uuid::Uuid>, // Soft focus: set by hovering, changes with mouse movement
@@ -397,7 +397,9 @@ impl App {
                             .margin(0)
                             .areas(main_content_area);
 
-                    let inner_area = self.logs_block.get_content_rect(content_area, is_focused, self.mode_color);
+                    let inner_area =
+                        self.logs_block
+                            .get_content_rect(content_area, is_focused, self.mode_color);
                     inner_area.height as usize
                 } else {
                     1 // fallback if area not yet rendered
@@ -608,17 +610,18 @@ impl App {
                 .margin(0)
                 .areas(area);
 
-        let [_content_area, horizontal_scrollbar_area] = Layout::vertical([
-            Constraint::Fill(1),
-            Constraint::Length(1),
-        ])
-        .margin(0)
-        .areas(main_content_area);
+        let [_content_area, horizontal_scrollbar_area] =
+            Layout::vertical([Constraint::Fill(1), Constraint::Length(1)])
+                .margin(0)
+                .areas(main_content_area);
 
         Some(horizontal_scrollbar_area)
     }
 
-    fn get_scrollbar_block_under_mouse(&self, mouse: &MouseEvent) -> Option<(uuid::Uuid, ScrollbarAxis)> {
+    fn get_scrollbar_block_under_mouse(
+        &self,
+        mouse: &MouseEvent,
+    ) -> Option<(uuid::Uuid, ScrollbarAxis)> {
         if let Some(area) = self.get_vertical_scrollbar_area(self.logs_block.id())
             && self.is_mouse_in_area(mouse, area)
         {

@@ -1,4 +1,4 @@
-use super::{App, ScrollbarAxis, DISPLAY_EVENT_DURATION_MS};
+use super::{App, DISPLAY_EVENT_DURATION_MS, ScrollbarAxis};
 use crate::provider::{decrement_detail_level, increment_detail_level};
 use anyhow::Result;
 use arboard::Clipboard;
