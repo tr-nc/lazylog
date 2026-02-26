@@ -21,7 +21,9 @@ impl App {
                         .margin(0)
                         .areas(content_area);
 
-                let content_rect = self.logs_block.get_content_rect(main_content_area, false);
+                let content_rect =
+                    self.logs_block
+                        .get_content_rect(main_content_area, false, self.mode_color);
                 let visible_height = content_rect.height as usize;
 
                 if visible_height == 0 {
@@ -81,7 +83,9 @@ impl App {
                 .margin(0)
                 .areas(main_content_area);
 
-            let inner_area = self.logs_block.get_content_rect(content_area, is_focused);
+            let inner_area =
+                self.logs_block
+                    .get_content_rect(content_area, is_focused, self.mode_color);
             inner_area.height as usize
         } else {
             1 // fallback if area not yet rendered

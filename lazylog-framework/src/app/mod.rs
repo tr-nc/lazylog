@@ -196,6 +196,11 @@ impl App {
             .map(|value| format!("/{}", value))
             .unwrap_or_default();
 
+        let mode_name = desc.mode_name.clone();
+        let mode_color = desc
+            .mode_color
+            .unwrap_or_else(|| theme::get_mode_color(&mode_name));
+
         Self {
             is_exiting: false,
             raw_logs: Vec::new(),
@@ -209,8 +214,8 @@ impl App {
             filter_engine,
             detail_level: 1, // default detail level (was Basic)
             parser: desc.parser,
-            mode_name: desc.mode_name,
-            mode_color: desc.mode_color.unwrap_or_else(|| theme::get_mode_color(&desc.mode_name)),
+            mode_name,
+            mode_color,
             debug_logs,
             hard_focused_block_id: logs_block_id,
             soft_focused_block_id: None,
@@ -384,7 +389,7 @@ impl App {
                             .margin(0)
                             .areas(main_content_area);
 
-                    let inner_area = self.logs_block.get_content_rect(content_area, is_focused);
+                    let inner_area = self.logs_block.get_content_rect(content_area, is_focused, self.mode_color);
                     inner_area.height as usize
                 } else {
                     1 // fallback if area not yet rendered

@@ -21,7 +21,9 @@ impl App {
                 .margin(0)
                 .areas(main_content_area);
 
-            let inner_area = self.logs_block.get_content_rect(content_area, is_focused);
+            let inner_area =
+                self.logs_block
+                    .get_content_rect(content_area, is_focused, self.mode_color);
             inner_area.height as usize
         } else {
             1 // fallback if area not yet rendered
@@ -118,7 +120,9 @@ impl App {
                 .margin(0)
                 .areas(main_content_area);
 
-            let inner_area = self.logs_block.get_content_rect(content_area, is_focused);
+            let inner_area =
+                self.logs_block
+                    .get_content_rect(content_area, is_focused, self.mode_color);
             inner_area.height as usize
         } else {
             1 // fallback if area not yet rendered
@@ -235,7 +239,7 @@ impl App {
         ])
         .margin(0)
         .areas(main_content_area);
-        let content_rect = block.get_content_rect(content_area, true);
+        let content_rect = block.get_content_rect(content_area, true, self.mode_color);
         let viewport_width = content_rect.width as usize;
 
         if content_width <= viewport_width {
@@ -289,9 +293,9 @@ impl App {
                     .areas(content_area);
 
             let is_focused = self.get_display_focused_block() == self.logs_block.id();
-            let inner_area = self
-                .logs_block
-                .get_content_rect(main_content_area, is_focused);
+            let inner_area =
+                self.logs_block
+                    .get_content_rect(main_content_area, is_focused, self.mode_color);
             let viewport_height = inner_area.height as usize;
             let max_scroll = lines_count.saturating_sub(viewport_height);
 

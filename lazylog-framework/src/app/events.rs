@@ -403,7 +403,9 @@ impl App {
                             .margin(0)
                             .areas(main_content_area);
 
-                    let inner_area = self.logs_block.get_content_rect(content_area, is_focused);
+                    let inner_area =
+                        self.logs_block
+                            .get_content_rect(content_area, is_focused, self.mode_color);
                     inner_area.height as usize
                 } else {
                     1 // fallback if area not yet rendered

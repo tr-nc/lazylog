@@ -17,7 +17,7 @@ fn brighten_color(color: Color) -> Color {
             let b = b.saturating_add(80).min(255);
             Color::Rgb(r, g, b)
         }
-        Color::Gray => Color::LightGray,
+        Color::Gray => Color::White,
         c => c,
     }
 }
