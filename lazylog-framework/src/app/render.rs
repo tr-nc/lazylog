@@ -135,7 +135,7 @@ impl App {
             status_bar = status_bar.add_status(
                 StatusGravity::Left,
                 mode.clone(),
-                StatusStyle::new().fg(Color::Gray),
+                StatusStyle::new().fg(self.mode_color),
             );
         }
         status_bar = status_bar.add_status_plain(StatusGravity::Left, wrap_text);
