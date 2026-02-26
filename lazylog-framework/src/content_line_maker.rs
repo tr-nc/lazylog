@@ -7,15 +7,30 @@ pub enum WrappingMode {
 }
 
 fn sanitize_control_chars(s: &str) -> String {
-    s.chars()
-        .map(|c| {
-            if c.is_control() && c != '\t' && c != '\n' {
-                '?'
-            } else {
-                c
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                while let Some(&ch) = chars.peek() {
+                    if ch.is_ascii_alphabetic() {
+                        chars.next();
+                        break;
+                    }
+                    chars.next();
+                }
             }
-        })
-        .collect()
+            continue;
+        }
+        if c.is_control() && c != '\t' && c != '\n' {
+            continue;
+        }
+        result.push(c);
+    }
+
+    result
 }
 
 pub fn content_into_lines(
@@ -229,7 +244,7 @@ mod tests {
     #[test]
     fn test_sanitize_control_chars() {
         let result = sanitize_control_chars("hello\rworld");
-        assert_eq!(result, "hello?world");
+        assert_eq!(result, "helloworld");
     }
 
     #[test]
@@ -241,6 +256,12 @@ mod tests {
     #[test]
     fn test_sanitize_removes_ansi_escape() {
         let result = sanitize_control_chars("hello\x1b[31mworld");
-        assert_eq!(result, "hello?[31mworld");
+        assert_eq!(result, "helloworld");
+    }
+
+    #[test]
+    fn test_sanitize_removes_ansi_with_reset() {
+        let result = sanitize_control_chars("hello\x1b[31mred\x1b[0mworld");
+        assert_eq!(result, "helloredworld");
     }
 }
