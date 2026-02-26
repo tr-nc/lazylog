@@ -107,7 +107,7 @@ struct App {
     filter_engine: FilterEngine, // Filtering engine with incremental + parallel support
     detail_level: LogDetailLevel, // Detail level for log display
     parser: Arc<dyn LogParser>, // Parser for log items (handles both parsing and formatting)
-    mode_name: Option<String>,  // Mode name to display in status bar
+    mode_name: Option<String>, // Mode name to display in status bar
     debug_logs: Arc<Mutex<Vec<String>>>, // Debug log messages for UI display
     hard_focused_block_id: uuid::Uuid, // Hard focus: set by clicking, persists until another click (defaults to logs_block)
     soft_focused_block_id: Option<uuid::Uuid>, // Soft focus: set by hovering, changes with mouse movement

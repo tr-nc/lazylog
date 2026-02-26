@@ -110,7 +110,15 @@ impl StatusBar {
             style: None,
         }
     }
+}
 
+impl Default for StatusBar {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl StatusBar {
     pub fn add_status(mut self, gravity: StatusGravity, text: String, style: StatusStyle) -> Self {
         let segment = StatusSegment { text, style };
         match gravity {

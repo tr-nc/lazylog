@@ -240,13 +240,14 @@ fn main() -> io::Result<()> {
 
     let initial_filter = cli_options.initial_filter;
 
-    let build_desc =
-        |parser: Arc<dyn lazylog_framework::provider::LogParser>, option: UsageOptions| -> AppDesc {
-            let mut desc = AppDesc::new(parser);
-            desc.initial_filter = initial_filter.clone();
-            desc.mode_name = get_mode_name(&option);
-            desc
-        };
+    let build_desc = |parser: Arc<dyn lazylog_framework::provider::LogParser>,
+                      option: UsageOptions|
+     -> AppDesc {
+        let mut desc = AppDesc::new(parser);
+        desc.initial_filter = initial_filter.clone();
+        desc.mode_name = get_mode_name(&option);
+        desc
+    };
 
     // Prepare provider and parser based on option (default to DYEH)
     let app_result = match usage_option {

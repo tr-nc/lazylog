@@ -132,8 +132,11 @@ impl App {
         let mut status_bar = StatusBar::new();
 
         if let Some(mode) = &self.mode_name {
-            status_bar = status_bar
-                .add_status(StatusGravity::Left, mode.clone(), StatusStyle::new().fg(Color::Gray));
+            status_bar = status_bar.add_status(
+                StatusGravity::Left,
+                mode.clone(),
+                StatusStyle::new().fg(Color::Gray),
+            );
         }
         status_bar = status_bar.add_status_plain(StatusGravity::Left, wrap_text);
         status_bar = status_bar.add_status_plain(StatusGravity::Right, &version_text);
@@ -143,7 +146,7 @@ impl App {
             let duration = event.duration.as_millis() as f32;
             let progress = elapsed / duration;
 
-            let mid_style = if progress < 0.1 || progress > 0.8 {
+            let mid_style = if !(0.1..=0.8).contains(&progress) {
                 let alpha_factor = if progress < 0.1 {
                     progress / 0.1
                 } else {
