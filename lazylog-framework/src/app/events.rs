@@ -104,7 +104,7 @@ impl App {
         log::debug!("Copied {} chars to clipboard", yank_content.len());
 
         self.set_display_event(
-            "Selected log copied to clipboard".to_string(),
+            "selected log copied to clipboard".to_string(),
             Duration::from_millis(DISPLAY_EVENT_DURATION_MS),
             None, // use default style
         );
@@ -141,7 +141,7 @@ impl App {
         self.set_display_event(
             format!("{} logs copied to clipboard", yank_contents.len()),
             Duration::from_millis(DISPLAY_EVENT_DURATION_MS),
-            None, // use default style
+            None,
         );
 
         Ok(())
@@ -278,7 +278,7 @@ impl App {
                 self.update_selection_by_uuid();
                 // notify user of detail level change
                 self.set_display_event(
-                    format!("Detail level: {}", self.detail_level),
+                    format!("detail level: {}", self.detail_level),
                     Duration::from_millis(DISPLAY_EVENT_DURATION_MS),
                     None,
                 );
@@ -294,7 +294,7 @@ impl App {
                 self.update_selection_by_uuid();
                 // notify user of detail level change
                 self.set_display_event(
-                    format!("Detail level: {}", self.detail_level),
+                    format!("detail level: {}", self.detail_level),
                     Duration::from_millis(DISPLAY_EVENT_DURATION_MS),
                     None,
                 );
@@ -331,9 +331,9 @@ impl App {
                 log::debug!("Text wrapping toggled: {}", self.text_wrapping_enabled);
 
                 let message = if self.text_wrapping_enabled {
-                    "Text wrapping enabled"
+                    "text wrapping enabled"
                 } else {
-                    "Text wrapping disabled"
+                    "text wrapping disabled"
                 };
                 self.set_display_event(
                     message.to_string(),
@@ -348,9 +348,9 @@ impl App {
                 self.set_mouse_capture(enable)?;
 
                 let message = if enable {
-                    "Mouse capture enabled (mouse scroll/click active)"
+                    "mouse capture enabled (mouse scroll/click active)"
                 } else {
-                    "Mouse capture disabled - text selection works"
+                    "mouse capture disabled - text selection works"
                 };
                 self.set_display_event(
                     message.to_string(),

@@ -874,7 +874,7 @@ impl App {
         };
 
         self.set_display_event(
-            format!("Copied \"{}\" to clipboard", display_word),
+            format!("copied \"{}\" to clipboard", display_word),
             Duration::from_millis(super::DISPLAY_EVENT_DURATION_MS),
             None,
         );
