@@ -137,16 +137,15 @@ impl App {
             } else {
                 "wrap off"
             };
+
+            if let Some(mode) = &self.mode_name {
+                status_bar = status_bar
+                    .add_status(StatusGravity::Left, mode.clone(), StatusStyle::new().fg(Color::Gray));
+            }
             status_bar = status_bar.add_status_plain(StatusGravity::Left, wrap_text);
 
             let version_text = format!("lazylog v{}", env!("CARGO_PKG_VERSION"));
-            if let Some(mode) = &self.mode_name {
-                status_bar = status_bar
-                    .add_status(StatusGravity::Right, mode.clone(), StatusStyle::new().fg(Color::Gray))
-                    .add_status_plain(StatusGravity::Right, &version_text)
-            } else {
-                status_bar = status_bar.add_status_plain(StatusGravity::Right, &version_text);
-            }
+            status_bar = status_bar.add_status_plain(StatusGravity::Right, &version_text);
         }
 
         if let Some(style) = custom_style {
