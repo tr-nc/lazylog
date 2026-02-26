@@ -50,6 +50,7 @@ pub struct AppDesc {
     pub ring_buffer_size: usize,
     pub initial_filter: Option<String>,
     pub parser: Arc<dyn LogParser>,
+    pub mode_name: Option<String>,
 }
 
 impl AppDesc {
@@ -61,6 +62,7 @@ impl AppDesc {
             ring_buffer_size: DEFAULT_RING_BUFFER_SIZE,
             initial_filter: None,
             parser,
+            mode_name: None,
         }
     }
 }
@@ -105,6 +107,7 @@ struct App {
     filter_engine: FilterEngine, // Filtering engine with incremental + parallel support
     detail_level: LogDetailLevel, // Detail level for log display
     parser: Arc<dyn LogParser>, // Parser for log items (handles both parsing and formatting)
+    mode_name: Option<String>,  // Mode name to display in status bar
     debug_logs: Arc<Mutex<Vec<String>>>, // Debug log messages for UI display
     hard_focused_block_id: uuid::Uuid, // Hard focus: set by clicking, persists until another click (defaults to logs_block)
     soft_focused_block_id: Option<uuid::Uuid>, // Soft focus: set by hovering, changes with mouse movement
@@ -203,6 +206,7 @@ impl App {
             filter_engine,
             detail_level: 1, // default detail level (was Basic)
             parser: desc.parser,
+            mode_name: desc.mode_name,
             debug_logs,
             hard_focused_block_id: logs_block_id,
             soft_focused_block_id: None,

@@ -92,6 +92,18 @@ enum UsageOptions {
     None, // when no args provided, show help
 }
 
+fn get_mode_name(option: &UsageOptions) -> Option<String> {
+    use UsageOptions::*;
+    match option {
+        IosEffect => Some("ios effect".to_string()),
+        IosFull => Some("ios".to_string()),
+        Android => Some("android".to_string()),
+        AndroidEffect => Some("android effect".to_string()),
+        Dyeh => Some("dyeh".to_string()),
+        Help | Version | None => Option::None,
+    }
+}
+
 fn set_provider_option(
     current: &mut UsageOptions,
     new_value: UsageOptions,
@@ -228,11 +240,13 @@ fn main() -> io::Result<()> {
 
     let initial_filter = cli_options.initial_filter;
 
-    let build_desc = |parser: Arc<dyn lazylog_framework::provider::LogParser>| -> AppDesc {
-        let mut desc = AppDesc::new(parser);
-        desc.initial_filter = initial_filter.clone();
-        desc
-    };
+    let build_desc =
+        |parser: Arc<dyn lazylog_framework::provider::LogParser>, option: UsageOptions| -> AppDesc {
+            let mut desc = AppDesc::new(parser);
+            desc.initial_filter = initial_filter.clone();
+            desc.mode_name = get_mode_name(&option);
+            desc
+        };
 
     // Prepare provider and parser based on option (default to DYEH)
     let app_result = match usage_option {
@@ -240,28 +254,28 @@ fn main() -> io::Result<()> {
             let provider = IosLogProvider::new();
             let parser: Arc<dyn lazylog_framework::provider::LogParser> =
                 Arc::new(IosEffectParser::new());
-            let desc = build_desc(parser);
+            let desc = build_desc(parser, UsageOptions::IosEffect);
             start_with_desc(&mut terminal, provider, desc)
         }
         UsageOptions::IosFull => {
             let provider = IosLogProvider::new();
             let parser: Arc<dyn lazylog_framework::provider::LogParser> =
                 Arc::new(IosFullParser::new());
-            let desc = build_desc(parser);
+            let desc = build_desc(parser, UsageOptions::IosFull);
             start_with_desc(&mut terminal, provider, desc)
         }
         UsageOptions::Android => {
             let provider = AndroidLogProvider::new();
             let parser: Arc<dyn lazylog_framework::provider::LogParser> =
                 Arc::new(AndroidParser::new());
-            let desc = build_desc(parser);
+            let desc = build_desc(parser, UsageOptions::Android);
             start_with_desc(&mut terminal, provider, desc)
         }
         UsageOptions::AndroidEffect => {
             let provider = AndroidLogProvider::new();
             let parser: Arc<dyn lazylog_framework::provider::LogParser> =
                 Arc::new(AndroidEffectParser::new());
-            let desc = build_desc(parser);
+            let desc = build_desc(parser, UsageOptions::AndroidEffect);
             start_with_desc(&mut terminal, provider, desc)
         }
         UsageOptions::Dyeh => {
@@ -270,7 +284,7 @@ fn main() -> io::Result<()> {
                 let provider = DyehLogProvider::new(log_dir_path);
                 let parser: Arc<dyn lazylog_framework::provider::LogParser> =
                     Arc::new(DyehParser::new());
-                let desc = build_desc(parser);
+                let desc = build_desc(parser, UsageOptions::Dyeh);
                 start_with_desc(&mut terminal, provider, desc)
             } else {
                 eprintln!("Error: Could not determine home directory");

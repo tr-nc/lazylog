@@ -142,7 +142,12 @@ impl App {
 
         // build right side status (version)
         let right_text = if self.display_event.is_none() && self.filter_input.is_empty() {
-            format!("lazylog v{}", env!("CARGO_PKG_VERSION"))
+            let mode_str = self
+                .mode_name
+                .as_ref()
+                .map(|m| format!("{} | ", m))
+                .unwrap_or_default();
+            format!("{}lazylog v{}", mode_str, env!("CARGO_PKG_VERSION"))
         } else {
             String::new()
         };
