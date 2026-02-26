@@ -228,7 +228,7 @@ impl App {
         let block = Block::default()
             .title("Help")
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(theme::TEXT_FG_COLOR));
+            .border_style(Style::default().fg(self.mode_color));
 
         Paragraph::new(help_text)
             .block(block)
@@ -271,7 +271,7 @@ impl App {
                 ScrollableBlockType::Details => &self.details_block,
                 ScrollableBlockType::Debug => &self.debug_block,
             };
-            let inner_area = block_ref.build(false).inner(area);
+            let inner_area = block_ref.build(false, self.mode_color).inner(area);
             let is_within_bounds =
                 inner_area.contains(ratatui::layout::Position::new(event.column, event.row));
 
@@ -303,7 +303,7 @@ impl App {
             ScrollableBlockType::Details => &self.details_block,
             ScrollableBlockType::Debug => &self.debug_block,
         };
-        let temp_content_rect = block_ref.get_content_rect(vertical_content_area, is_focused);
+        let temp_content_rect = block_ref.get_content_rect(vertical_content_area, is_focused, self.mode_color);
         let needs_horizontal_scrollbar = max_content_width > temp_content_rect.width as usize;
 
         // create vertical layout for content and horizontal scrollbar
@@ -321,7 +321,7 @@ impl App {
                 ScrollableBlockType::Debug => &mut self.debug_block,
             };
 
-            let content_rect = block.get_content_rect(content_area, is_focused);
+            let content_rect = block.get_content_rect(content_area, is_focused, self.mode_color);
             block.update_horizontal_scrollbar_state(max_content_width, content_rect.width as usize);
             block.set_lines_count(lines_count);
             let scroll_position = block.get_scroll_position();
@@ -353,7 +353,7 @@ impl App {
                 ScrollableBlockType::Details => &self.details_block,
                 ScrollableBlockType::Debug => &self.debug_block,
             };
-            block.build(is_focused)
+            block.build(is_focused, self.mode_color)
         };
 
         // render paragraph with scrolling
@@ -433,7 +433,7 @@ impl App {
         // Calculate content first to determine if horizontal scrollbar is needed
         let temp_inner_area = self
             .logs_block
-            .get_content_rect(content_area, is_log_focused);
+            .get_content_rect(content_area, is_log_focused, self.mode_color);
         let viewport_width = temp_inner_area.width as usize;
 
         // Since we're using truncated mode, content will never exceed the viewport width
@@ -451,7 +451,7 @@ impl App {
             let is_left_click = event.kind
                 == crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left)
                 && !self.suppress_mouse_up;
-            let inner_area = self.logs_block.build(false).inner(main_content_area);
+            let inner_area = self.logs_block.build(false, self.mode_color).inner(main_content_area);
             let is_within_bounds =
                 inner_area.contains(ratatui::layout::Position::new(event.column, event.row));
 
@@ -477,7 +477,7 @@ impl App {
 
         let inner_area = self
             .logs_block
-            .get_content_rect(main_content_area, is_log_focused);
+            .get_content_rect(main_content_area, is_log_focused, self.mode_color);
         let visible_height = inner_area.height as usize;
         let content_width = inner_area.width as usize;
 
@@ -574,7 +574,7 @@ impl App {
         let scrollbar_content_length = total_lines.saturating_sub(visible_height);
         logs_block.update_scrollbar_state(scrollbar_content_length, Some(scroll_position));
 
-        let block = self.logs_block.build(is_log_focused);
+        let block = self.logs_block.build(is_log_focused, self.mode_color);
 
         // Determine if horizontal scrollbar is needed
         let needs_horizontal_scrollbar = max_content_width > viewport_width;
@@ -710,7 +710,7 @@ impl App {
             let is_focused = self.get_display_focused_block() == self.details_block.id();
             let temp_content_rect = self
                 .details_block
-                .get_content_rect(content_area, is_focused);
+                .get_content_rect(content_area, is_focused, self.mode_color);
 
             let wrapping_mode = if text_wrapping_enabled {
                 WrappingMode::Wrapped

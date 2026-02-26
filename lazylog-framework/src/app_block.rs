@@ -9,6 +9,19 @@ use ratatui::{
 };
 use uuid::Uuid;
 
+fn brighten_color(color: Color) -> Color {
+    match color {
+        Color::Rgb(r, g, b) => {
+            let r = r.saturating_add(80).min(255);
+            let g = g.saturating_add(80).min(255);
+            let b = b.saturating_add(80).min(255);
+            Color::Rgb(r, g, b)
+        }
+        Color::Gray => Color::LightGray,
+        c => c,
+    }
+}
+
 pub struct AppBlock {
     #[allow(dead_code)]
     id: Uuid,
@@ -56,16 +69,18 @@ impl AppBlock {
         self.id
     }
 
-    pub fn build(&self, focused: bool) -> Block<'_> {
+    pub fn build(&self, focused: bool, mode_color: Color) -> Block<'_> {
         let mut block = Block::default()
             .borders(Borders::TOP | Borders::LEFT)
             .border_type(BorderType::Rounded);
 
-        if focused {
-            block = block.border_style(Style::new().fg(Color::White));
+        let border_color = if focused {
+            // brighten mode color for focused state (blend with white)
+            brighten_color(mode_color)
         } else {
-            block = block.border_style(Style::new().fg(Color::Gray));
-        }
+            mode_color
+        };
+        block = block.border_style(Style::new().fg(border_color));
 
         if let Some(title) = &self.title {
             let title_style = if focused {
@@ -200,8 +215,8 @@ impl AppBlock {
     }
 
     /// Returns the content rectangle accounting for block borders
-    pub fn get_content_rect(&self, area: Rect, focused: bool) -> Rect {
-        self.build(focused).inner(area)
+    pub fn get_content_rect(&self, area: Rect, focused: bool, mode_color: Color) -> Rect {
+        self.build(focused, mode_color).inner(area)
     }
 }
 
