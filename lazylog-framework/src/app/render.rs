@@ -129,7 +129,7 @@ impl App {
             ("?: help | q: quit".to_string(), None)
         };
 
-        let mut status_bar = StatusBar::new().set_mid(mid_text);
+        let mut status_bar = StatusBar::new().add_status_plain(StatusGravity::Mid, &mid_text);
 
         if self.display_event.is_none() && self.filter_input.is_empty() {
             let wrap_text = if self.text_wrapping_enabled {

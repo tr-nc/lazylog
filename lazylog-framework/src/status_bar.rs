@@ -46,6 +46,7 @@ impl DisplayEvent {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum StatusGravity {
     Left,
+    Mid,
     Right,
 }
 
@@ -89,10 +90,9 @@ struct StatusSegment {
 
 pub struct StatusBar {
     left_segments: Vec<StatusSegment>,
-    mid: String,
+    mid_segments: Vec<StatusSegment>,
     right_segments: Vec<StatusSegment>,
     bg_color: Option<Color>,
-    mid_fg: Option<Color>,
     style: Option<Style>,
 }
 
@@ -100,10 +100,9 @@ impl StatusBar {
     pub fn new() -> Self {
         Self {
             left_segments: Vec::new(),
-            mid: String::new(),
+            mid_segments: Vec::new(),
             right_segments: Vec::new(),
             bg_color: None,
-            mid_fg: None,
             style: None,
         }
     }
@@ -112,6 +111,7 @@ impl StatusBar {
         let segment = StatusSegment { text, style };
         match gravity {
             StatusGravity::Left => self.left_segments.push(segment),
+            StatusGravity::Mid => self.mid_segments.push(segment),
             StatusGravity::Right => self.right_segments.push(segment),
         }
         self
@@ -121,20 +121,9 @@ impl StatusBar {
         self.add_status(gravity, text.to_string(), StatusStyle::new())
     }
 
-    pub fn set_mid(mut self, text: String) -> Self {
-        self.mid = text;
-        self
-    }
-
     #[allow(dead_code)]
     pub fn set_bg(mut self, color: Color) -> Self {
         self.bg_color = Some(color);
-        self
-    }
-
-    #[allow(dead_code)]
-    pub fn set_mid_fg(mut self, color: Color) -> Self {
-        self.mid_fg = Some(color);
         self
     }
 
@@ -166,8 +155,8 @@ impl StatusBar {
         let sep = " | ";
 
         let (left_spans, left_len) = Self::build_gravity_spans(&self.left_segments, sep);
+        let (mid_spans, mid_len) = Self::build_gravity_spans(&self.mid_segments, sep);
         let (right_spans, right_len) = Self::build_gravity_spans(&self.right_segments, sep);
-        let mid_len = self.mid.chars().count();
 
         let mid_center_start = total_width.saturating_sub(mid_len) / 2;
         let left_to_mid_padding = mid_center_start.saturating_sub(left_len);
@@ -180,12 +169,7 @@ impl StatusBar {
         spans.extend(left_spans);
         spans.push(Span::raw(" ".repeat(left_to_mid_padding)));
 
-        let mid_span = if let Some(fg) = self.mid_fg {
-            Span::styled(self.mid, Style::default().fg(fg))
-        } else {
-            Span::raw(self.mid)
-        };
-        spans.push(mid_span);
+        spans.extend(mid_spans);
         spans.push(Span::raw(" ".repeat(mid_to_right_padding)));
 
         spans.extend(right_spans);
