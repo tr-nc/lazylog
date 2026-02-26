@@ -21,6 +21,28 @@ const NAMED_COLORS: [Color; 16] = [
     Color::White,
 ];
 
+pub const MODE_COLORS: &[(Option<&str>, Color)] = &[
+    (Some("ios"), Color::LightBlue),
+    (Some("ios effect"), Color::LightBlue),
+    (Some("android"), Color::Rgb(255, 165, 0)), // orange
+    (Some("android effect"), Color::Rgb(255, 165, 0)),
+    (Some("dyeh"), Color::LightGreen),
+    (None, Color::Gray), // default
+];
+
+pub fn get_mode_color(mode_name: &Option<String>) -> Color {
+    if let Some(name) = mode_name {
+        for (mode, color) in MODE_COLORS {
+            if let Some(m) = mode {
+                if name.to_lowercase().contains(m) {
+                    return *color;
+                }
+            }
+        }
+    }
+    Color::Gray
+}
+
 pub const TEXT_FG_COLOR: Color = Color::Gray;
 
 #[allow(dead_code)]
