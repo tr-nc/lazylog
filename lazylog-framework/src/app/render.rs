@@ -121,36 +121,53 @@ impl App {
     pub(super) fn render_footer(&self, area: Rect, buf: &mut Buffer) -> Result<()> {
         use crate::status_bar::{StatusBar, StatusGravity, StatusStyle};
 
-        let (mid_text, custom_style) = if let Some(event) = &self.display_event {
-            (event.text.clone(), Some(event.style))
-        } else if !self.filter_input.is_empty() {
-            (self.filter_input.clone(), None)
+        let wrap_text = if self.text_wrapping_enabled {
+            "wrap on"
         } else {
-            ("?: help | q: quit".to_string(), None)
+            "wrap off"
         };
 
-        let mut status_bar = StatusBar::new().add_status_plain(StatusGravity::Mid, &mid_text);
+        let version_text = format!("lazylog v{}", env!("CARGO_PKG_VERSION"));
 
-        if self.display_event.is_none() && self.filter_input.is_empty() {
-            let wrap_text = if self.text_wrapping_enabled {
-                "wrap on"
+        let mut status_bar = StatusBar::new();
+
+        if let Some(mode) = &self.mode_name {
+            status_bar = status_bar
+                .add_status(StatusGravity::Left, mode.clone(), StatusStyle::new().fg(Color::Gray));
+        }
+        status_bar = status_bar.add_status_plain(StatusGravity::Left, wrap_text);
+        status_bar = status_bar.add_status_plain(StatusGravity::Right, &version_text);
+
+        if let Some(event) = &self.display_event {
+            let elapsed = event.start_time.elapsed().as_millis() as f32;
+            let duration = event.duration.as_millis() as f32;
+            let progress = elapsed / duration;
+
+            let mid_style = if progress < 0.1 || progress > 0.8 {
+                let alpha_factor = if progress < 0.1 {
+                    progress / 0.1
+                } else {
+                    1.0 - ((progress - 0.8) / 0.2)
+                };
+                let fg = if alpha_factor < 0.5 {
+                    Color::Gray
+                } else {
+                    Color::Black
+                };
+                StatusStyle::from_colors(Some(fg), Some(Color::Yellow))
             } else {
-                "wrap off"
+                StatusStyle::from_colors(Some(Color::Black), Some(Color::Yellow))
             };
 
-            if let Some(mode) = &self.mode_name {
-                status_bar = status_bar
-                    .add_status(StatusGravity::Left, mode.clone(), StatusStyle::new().fg(Color::Gray));
-            }
-            status_bar = status_bar.add_status_plain(StatusGravity::Left, wrap_text);
-
-            let version_text = format!("lazylog v{}", env!("CARGO_PKG_VERSION"));
-            status_bar = status_bar.add_status_plain(StatusGravity::Right, &version_text);
+            let padded_text = format!(" - {} - ", event.text);
+            status_bar = status_bar.add_status(StatusGravity::Mid, padded_text, mid_style);
+        } else if !self.filter_input.is_empty() {
+            status_bar = status_bar.add_status_plain(StatusGravity::Mid, &self.filter_input);
+        } else {
+            status_bar = status_bar.add_status_plain(StatusGravity::Mid, "?: help | q: quit");
         }
 
-        if let Some(style) = custom_style {
-            status_bar = status_bar.set_style(style);
-        } else if self.filter_focused {
+        if self.filter_focused && self.display_event.is_none() {
             status_bar = status_bar.set_style(theme::FILTER_FOCUS_STYLE);
         }
 

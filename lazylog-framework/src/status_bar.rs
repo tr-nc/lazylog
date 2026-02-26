@@ -81,6 +81,10 @@ impl StatusStyle {
         }
         style
     }
+
+    pub fn from_colors(fg: Option<Color>, bg: Option<Color>) -> Self {
+        Self { fg, bg }
+    }
 }
 
 struct StatusSegment {
