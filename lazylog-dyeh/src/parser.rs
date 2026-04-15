@@ -1,8 +1,19 @@
+use lazy_static::lazy_static;
 use lazylog_framework::provider::{LogDetailLevel, LogItem, LogParser};
 use lazylog_parser::process_delta;
+use regex::Regex;
+
+lazy_static! {
+    static ref EDITOR_LOG_RE: Regex =
+        Regex::new(r"^\[(?P<timestamp>[^\]]+)\]\s+\[(?P<level>[^\]]+)\]\s*(?P<content>.*)$")
+            .unwrap();
+}
 
 /// DYEH log parser - uses lazylog-parser to parse structured DYEH logs
 pub struct DyehParser;
+
+/// simple parser for DYEH editor logs
+pub struct DyehEditorParser;
 
 impl DyehParser {
     pub fn new() -> Self {
@@ -23,7 +34,23 @@ impl DyehParser {
     }
 }
 
+impl DyehEditorParser {
+    pub fn new() -> Self {
+        Self
+    }
+
+    fn shorten_content(content: &str) -> String {
+        DyehParser::shorten_content(content)
+    }
+}
+
 impl Default for DyehParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Default for DyehEditorParser {
     fn default() -> Self {
         Self::new()
     }
@@ -117,5 +144,56 @@ impl LogParser for DyehParser {
 
     fn max_detail_level(&self) -> LogDetailLevel {
         4 // 5 levels: 0=content, 1=time, 2=time+level, 3=time+level+tag, 4=all
+    }
+}
+
+impl LogParser for DyehEditorParser {
+    fn parse(&self, raw_log: &str) -> Option<LogItem> {
+        let first_line = raw_log.lines().next()?.trim();
+        let captures = EDITOR_LOG_RE.captures(first_line)?;
+
+        let level = captures.name("level")?.as_str().trim();
+        let first_content = captures.name("content")?.as_str();
+
+        let mut content_lines = vec![first_content.to_string()];
+        content_lines.extend(raw_log.lines().skip(1).map(|line| line.to_string()));
+
+        let content = content_lines.join("\n").trim().to_string();
+
+        Some(LogItem::new(content, raw_log.to_string()).with_metadata("level", level.to_string()))
+    }
+
+    fn format_preview(&self, item: &LogItem, detail_level: LogDetailLevel) -> String {
+        let content = Self::shorten_content(&item.content);
+        let time = &item.time;
+        let level = item.get_metadata("level").unwrap_or("");
+
+        match detail_level {
+            0 => content,
+            1 => format!("[{}] {}", time, content),
+            _ if level.is_empty() => format!("[{}] {}", time, content),
+            _ => format!("[{}] [{}] {}", time, level, content),
+        }
+    }
+
+    fn get_searchable_text(&self, item: &LogItem, detail_level: LogDetailLevel) -> String {
+        if detail_level >= 2 {
+            let level = item.get_metadata("level").unwrap_or("");
+            if level.is_empty() {
+                item.content.clone()
+            } else {
+                format!("{} {}", level, item.content)
+            }
+        } else {
+            item.content.clone()
+        }
+    }
+
+    fn make_yank_content(&self, item: &LogItem) -> String {
+        item.raw_content.clone()
+    }
+
+    fn max_detail_level(&self) -> LogDetailLevel {
+        2
     }
 }

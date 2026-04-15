@@ -6,7 +6,7 @@ mod file_finder;
 mod parser;
 mod provider;
 
-pub use parser::DyehParser;
+pub use parser::{DyehEditorParser, DyehParser};
 pub use provider::DyehLogProvider;
 
 // Also need to copy metadata module

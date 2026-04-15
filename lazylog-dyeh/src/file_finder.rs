@@ -3,6 +3,46 @@ use std::{
     path::{Path, PathBuf},
 };
 
+fn collect_matching_files(
+    base_path: &Path,
+    matcher: &dyn Fn(&Path) -> bool,
+    files: &mut Vec<PathBuf>,
+) {
+    if let Ok(entries) = fs::read_dir(base_path) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+
+            if path.is_dir() {
+                collect_matching_files(&path, matcher, files);
+                continue;
+            }
+
+            if path.is_file() && matcher(&path) {
+                files.push(path);
+            }
+        }
+    }
+}
+
+fn find_latest_file(files: Vec<PathBuf>, empty_message: &str) -> Result<PathBuf, String> {
+    let mut dated_files: Vec<(PathBuf, std::time::SystemTime)> = Vec::new();
+
+    for file_path in files {
+        if let Ok(metadata) = fs::metadata(&file_path)
+            && let Ok(modified) = metadata.modified()
+        {
+            dated_files.push((file_path, modified));
+        }
+    }
+
+    if dated_files.is_empty() {
+        return Err(empty_message.to_string());
+    }
+
+    dated_files.sort_by_key(|(_, modified)| *modified);
+    Ok(dated_files.pop().unwrap().0)
+}
+
 /// recursively find all 'previewLog' directories under the given path (DYEH-specific)
 pub fn find_preview_log_dirs(base_path: &Path) -> Vec<PathBuf> {
     let mut preview_log_dirs = Vec::new();
@@ -35,7 +75,7 @@ pub fn find_latest_live_log(preview_log_dirs: Vec<PathBuf>) -> Result<PathBuf, S
         return Err("No previewLog directories found.".to_string());
     }
 
-    let mut all_live_log_files: Vec<(PathBuf, std::time::SystemTime)> = Vec::new();
+    let mut all_live_log_files = Vec::new();
 
     // search for live log files in all preview log directories
     for log_dir in &preview_log_dirs {
@@ -67,21 +107,27 @@ pub fn find_latest_live_log(preview_log_dirs: Vec<PathBuf>) -> Result<PathBuf, S
             })
             .collect();
 
-        // get modification time for each file to find the latest one globally
-        for file_path in live_log_files {
-            if let Ok(metadata) = fs::metadata(&file_path)
-                && let Ok(modified) = metadata.modified()
-            {
-                all_live_log_files.push((file_path, modified));
-            }
-        }
+        all_live_log_files.extend(live_log_files);
     }
 
-    if all_live_log_files.is_empty() {
-        return Err("No live log files found in any previewLog directories.".to_string());
-    }
+    find_latest_file(
+        all_live_log_files,
+        "No live log files found in any previewLog directories.",
+    )
+}
 
-    // sort by modification time and return the latest
-    all_live_log_files.sort_by_key(|(_, modified)| *modified);
-    Ok(all_live_log_files.pop().unwrap().0)
+/// find the latest editor log file under a DYEH Logs/Log tree
+pub fn find_latest_editor_log(base_path: &Path) -> Result<PathBuf, String> {
+    let mut editor_log_files = Vec::new();
+    collect_matching_files(
+        base_path,
+        &|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with("-editor.log"))
+        },
+        &mut editor_log_files,
+    );
+
+    find_latest_file(editor_log_files, "No editor log files found.")
 }
