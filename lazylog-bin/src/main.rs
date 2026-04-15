@@ -245,8 +245,8 @@ where
                         && matches_filter(&parser, &item, initial_filter)
                     {
                         let color = get_headless_log_color(&item);
-                        print!(
-                            "{}{}{}\n",
+                        println!(
+                            "{}{}{}",
                             SetForegroundColor(color),
                             item.raw_content,
                             ResetColor
