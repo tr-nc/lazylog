@@ -1,6 +1,6 @@
 use crossterm::event;
 use lazylog_android::{AndroidEffectParser, AndroidLogProvider, AndroidParser};
-use lazylog_dyeh::{DyehLogProvider, DyehParser};
+use lazylog_dyeh::{DyehEditorParser, DyehLogProvider, DyehParser};
 use lazylog_framework::{AppDesc, start_with_desc};
 use lazylog_ios::{IosEffectParser, IosFullParser, IosLogProvider};
 use ratatui::{
@@ -305,7 +305,7 @@ fn main() -> io::Result<()> {
                 let log_dir_path = dir.join("Library/Application Support/DouyinAR");
                 let provider = DyehLogProvider::new_editor(log_dir_path);
                 let parser: Arc<dyn lazylog_framework::provider::LogParser> =
-                    Arc::new(DyehParser::new());
+                    Arc::new(DyehEditorParser::new());
                 let desc = build_desc(parser, UsageOptions::DyehEditor);
                 start_with_desc(&mut terminal, provider, desc)
             } else {

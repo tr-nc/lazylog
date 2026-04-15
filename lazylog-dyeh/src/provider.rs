@@ -1,11 +1,18 @@
 use crate::{file_finder, metadata};
 use anyhow::Result;
+use lazy_static::lazy_static;
 use lazylog_framework::provider::LogProvider;
 use memmap2::MmapOptions;
+use regex::Regex;
 use std::{
     fs::File,
     path::{Path, PathBuf},
 };
+
+lazy_static! {
+    static ref EDITOR_LOG_HEADER_RE: Regex =
+        Regex::new(r"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}\] \[[^\]]+\]").unwrap();
+}
 
 /// log provider for DYEH logs (file-based)
 pub struct DyehLogProvider {
@@ -160,16 +167,32 @@ impl DyehLogProvider {
 
         let delta_str = String::from_utf8_lossy(delta_bytes);
 
-        // split by ## markers to get complete log blocks
-        let log_blocks = Self::split_by_markers(&delta_str);
+        let log_blocks = Self::split_log_blocks(file_path, &delta_str);
 
         Ok(log_blocks)
     }
 
-    fn split_by_markers(text: &str) -> Vec<String> {
-        use lazy_static::lazy_static;
-        use regex::Regex;
+    fn split_log_blocks(file_path: &Path, text: &str) -> Vec<String> {
+        match Self::source_from_path(file_path) {
+            DyehLogSource::Preview => Self::split_preview_blocks(text),
+            DyehLogSource::Editor => Self::split_editor_blocks(text),
+        }
+    }
 
+    fn source_from_path(file_path: &Path) -> DyehLogSource {
+        let is_editor = file_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with("-editor.log"));
+
+        if is_editor {
+            DyehLogSource::Editor
+        } else {
+            DyehLogSource::Preview
+        }
+    }
+
+    fn split_preview_blocks(text: &str) -> Vec<String> {
         lazy_static! {
             static ref MARKER_RE: Regex =
                 Regex::new(r"## \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}").unwrap();
@@ -193,6 +216,31 @@ impl DyehLogProvider {
                     blocks.push(block);
                 }
             }
+        }
+
+        blocks
+    }
+
+    fn split_editor_blocks(text: &str) -> Vec<String> {
+        let mut blocks = Vec::new();
+        let mut current_block = String::new();
+
+        for line in text.lines() {
+            let is_new_entry = EDITOR_LOG_HEADER_RE.is_match(line);
+
+            if is_new_entry && !current_block.is_empty() {
+                blocks.push(current_block.trim().to_string());
+                current_block.clear();
+            }
+
+            if !current_block.is_empty() {
+                current_block.push('\n');
+            }
+            current_block.push_str(line);
+        }
+
+        if !current_block.is_empty() {
+            blocks.push(current_block.trim().to_string());
         }
 
         blocks
