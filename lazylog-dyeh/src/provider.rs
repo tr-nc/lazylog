@@ -83,16 +83,16 @@ impl DyehLogProvider {
             DyehLogSource::Editor => {
                 let mut editor_log_files = Vec::new();
 
-                if logs_path.exists() {
-                    if let Ok(path) = file_finder::find_latest_editor_log(&logs_path) {
-                        editor_log_files.push(path);
-                    }
+                if logs_path.exists()
+                    && let Ok(path) = file_finder::find_latest_editor_log(&logs_path)
+                {
+                    editor_log_files.push(path);
                 }
 
-                if log_path.exists() {
-                    if let Ok(path) = file_finder::find_latest_editor_log(&log_path) {
-                        editor_log_files.push(path);
-                    }
+                if log_path.exists()
+                    && let Ok(path) = file_finder::find_latest_editor_log(&log_path)
+                {
+                    editor_log_files.push(path);
                 }
 
                 if editor_log_files.is_empty() {
