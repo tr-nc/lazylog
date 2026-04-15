@@ -7,6 +7,7 @@ Lazylog provides instant log file access with structured parsing, smooth scrolli
 ## Features
 
 - **Multiple log sources** - Support for DYEH file logs, iOS device logs, and Android device logs
+- **Headless streaming** - Dump parsed logs to stdout for scripting and coding agent workflows
 - **Real-time monitoring** - Automatically follows log updates like `tail -f`
 - **Vim-like navigation** - Use `j/k` or arrow keys for navigation, `h/l` for horizontal scrolling
 - **Smart log parsing** - Automatically detects timestamps, log levels, tags, and messages
@@ -81,12 +82,26 @@ cargo run -- --filter "ERROR"
 
 # Stream logs to stdout without the TUI
 cargo run -- --headless --dyeh-preview
-
-# Headless mode also works with filters and other provider modes
-cargo run -- --headless --android-effect --filter "ERROR"
 ```
 
-In headless mode, lazylog streams matching logs to stdout continuously and prints each parsed item using its full `raw_content`.
+### Headless mode
+
+Use `--headless` to skip the TUI and stream logs directly to stdout.
+
+```bash
+# Headless mode works with filters and all existing providers
+cargo run -- --headless --android-effect --filter "ERROR"
+
+# Stream iOS logs non-interactively
+cargo run -- --headless --ios
+```
+
+Headless mode behavior:
+
+- Streams forever for live providers until interrupted
+- Reuses the existing provider and parser for the selected mode
+- Applies startup filters from `--filter`
+- Prints each matching parsed item using its full `raw_content`
 
 ### Key bindings
 
