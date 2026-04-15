@@ -1,6 +1,7 @@
 use crossterm::event;
 use lazylog_android::{AndroidEffectParser, AndroidLogProvider, AndroidParser};
 use lazylog_dyeh::{DyehEditorParser, DyehLogProvider, DyehParser};
+use lazylog_framework::provider::{LogItem, LogParser, LogProvider};
 use lazylog_framework::{AppDesc, start_with_desc};
 use lazylog_ios::{IosEffectParser, IosFullParser, IosLogProvider};
 use ratatui::{
@@ -21,6 +22,7 @@ use std::io;
 use std::panic;
 use std::process::Command;
 use std::sync::Arc;
+use std::thread;
 use std::time::Duration;
 
 fn print_usage() {
@@ -33,6 +35,7 @@ fn print_usage() {
     eprintln!("  --ios-effect, -ie       Use iOS log provider [EFFECT MODE]");
     eprintln!("  --android, -a           Use Android log provider");
     eprintln!("  --android-effect, -ae   Use Android log provider [EFFECT MODE]");
+    eprintln!("  --headless              Stream logs to stdout without the TUI");
     eprintln!("  --filter, -f <QUERY>    Apply filter on startup");
     eprintln!("  --version, -v           Print version information");
     eprintln!("  --help, -h              Print this help message");
@@ -129,12 +132,14 @@ fn set_provider_option(
 
 struct CliOptions {
     usage_option: UsageOptions,
+    headless: bool,
     initial_filter: Option<String>,
 }
 
 impl CliOptions {
     fn from_args(args: &[String]) -> Result<Self, io::Error> {
         let mut usage_option = UsageOptions::None;
+        let mut headless = false;
         let mut initial_filter = None;
         let mut help_requested = false;
 
@@ -178,6 +183,7 @@ impl CliOptions {
                     }
                     initial_filter = Some(args[i].clone());
                 }
+                "--headless" => headless = true,
                 "--help" | "-h" => help_requested = true,
                 _ => {
                     print_usage();
@@ -196,8 +202,56 @@ impl CliOptions {
 
         Ok(Self {
             usage_option,
+            headless,
             initial_filter,
         })
+    }
+}
+
+fn matches_filter(
+    parser: &Arc<dyn LogParser>,
+    item: &LogItem,
+    initial_filter: Option<&str>,
+) -> bool {
+    let Some(query) = initial_filter
+        .map(str::trim)
+        .filter(|query| !query.is_empty())
+    else {
+        return true;
+    };
+
+    parser
+        .get_searchable_text(item, parser.max_detail_level())
+        .to_lowercase()
+        .contains(&query.to_lowercase())
+}
+
+fn run_headless<P>(
+    mut provider: P,
+    parser: Arc<dyn LogParser>,
+    initial_filter: Option<&str>,
+    poll_interval: Duration,
+) -> io::Result<()>
+where
+    P: LogProvider,
+{
+    provider.start().map_err(io::Error::other)?;
+
+    loop {
+        match provider.poll_logs() {
+            Ok(raw_logs) => {
+                for raw_log in raw_logs {
+                    if let Some(item) = parser.parse(&raw_log)
+                        && matches_filter(&parser, &item, initial_filter)
+                    {
+                        println!("{}", item.raw_content);
+                    }
+                }
+            }
+            Err(err) => eprintln!("Provider poll error: {}", err),
+        }
+
+        thread::sleep(poll_interval);
     }
 }
 
@@ -217,6 +271,7 @@ fn main() -> io::Result<()> {
         return Ok(());
     }
 
+    let poll_interval = Duration::from_millis(20);
     // check if idevicesyslog is available for iOS options
     if matches!(
         usage_option,
@@ -237,6 +292,69 @@ fn main() -> io::Result<()> {
         std::process::exit(1);
     }
 
+    if cli_options.headless {
+        let initial_filter = cli_options.initial_filter.as_deref();
+        return match usage_option {
+            UsageOptions::IosEffect => run_headless(
+                IosLogProvider::new(),
+                Arc::new(IosEffectParser::new()),
+                initial_filter,
+                poll_interval,
+            ),
+            UsageOptions::IosFull => run_headless(
+                IosLogProvider::new(),
+                Arc::new(IosFullParser::new()),
+                initial_filter,
+                poll_interval,
+            ),
+            UsageOptions::Android => run_headless(
+                AndroidLogProvider::new(),
+                Arc::new(AndroidParser::new()),
+                initial_filter,
+                poll_interval,
+            ),
+            UsageOptions::AndroidEffect => run_headless(
+                AndroidLogProvider::new(),
+                Arc::new(AndroidEffectParser::new()),
+                initial_filter,
+                poll_interval,
+            ),
+            UsageOptions::DyehPreview => {
+                if let Some(dir) = dirs::home_dir() {
+                    let log_dir_path = dir.join("Library/Application Support/DouyinAR");
+                    run_headless(
+                        DyehLogProvider::new(log_dir_path),
+                        Arc::new(DyehParser::new()),
+                        initial_filter,
+                        poll_interval,
+                    )
+                } else {
+                    Err(io::Error::new(
+                        io::ErrorKind::NotFound,
+                        "Error: Could not determine home directory",
+                    ))
+                }
+            }
+            UsageOptions::DyehEditor => {
+                if let Some(dir) = dirs::home_dir() {
+                    let log_dir_path = dir.join("Library/Application Support/DouyinAR");
+                    run_headless(
+                        DyehLogProvider::new_editor(log_dir_path),
+                        Arc::new(DyehEditorParser::new()),
+                        initial_filter,
+                        poll_interval,
+                    )
+                } else {
+                    Err(io::Error::new(
+                        io::ErrorKind::NotFound,
+                        "Error: Could not determine home directory",
+                    ))
+                }
+            }
+            UsageOptions::Help | UsageOptions::None | UsageOptions::Version => unreachable!(),
+        };
+    }
+
     let mut terminal = setup_terminal()?;
 
     // Ensure we restore the terminal on panic
@@ -253,6 +371,7 @@ fn main() -> io::Result<()> {
      -> AppDesc {
         let mut desc = AppDesc::new(parser);
         desc.initial_filter = initial_filter.clone();
+        desc.poll_interval = poll_interval;
         desc.mode_name = get_mode_name(&option);
         desc
     };
