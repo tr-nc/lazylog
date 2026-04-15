@@ -10,7 +10,7 @@ use ratatui::{
     crossterm::{
         event::{DisableMouseCapture, EnableMouseCapture},
         execute,
-        style::{Color, ResetColor, SetBackgroundColor},
+        style::{Color, ResetColor, SetBackgroundColor, SetForegroundColor},
         terminal::{
             Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
             enable_raw_mode,
@@ -244,7 +244,13 @@ where
                     if let Some(item) = parser.parse(&raw_log)
                         && matches_filter(&parser, &item, initial_filter)
                     {
-                        println!("{}", item.raw_content);
+                        let color = get_headless_log_color(&item);
+                        print!(
+                            "{}{}{}\n",
+                            SetForegroundColor(color),
+                            item.raw_content,
+                            ResetColor
+                        );
                     }
                 }
             }
@@ -252,6 +258,16 @@ where
         }
 
         thread::sleep(poll_interval);
+    }
+}
+
+fn get_headless_log_color(item: &LogItem) -> Color {
+    let level = item.get_metadata("level").unwrap_or("").to_uppercase();
+    match level.as_str() {
+        "ERROR" => Color::Red,
+        "WARNING" | "WARN" => Color::Yellow,
+        "SYSTEM" => Color::White,
+        _ => Color::Grey,
     }
 }
 
