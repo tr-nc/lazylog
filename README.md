@@ -29,11 +29,18 @@ This means pressing `q` exits within ~25-50ms even when no device is connected (
 
 ## Installation
 
-### Prerequisites
+### Homebrew
 
-- Rust toolchain 1.77+ ([install via rustup](https://rustup.rs))
-- **iOS support** (optional): Requires `idevicesyslog` - install via `brew install libimobiledevice` on macOS
-- **Android support** (optional): Requires `adb` - install via `brew install android-platform-tools` on macOS
+```bash
+# Install
+brew install tr-nc/tap/lazylog
+
+# Upgrade
+brew upgrade lazylog
+
+# Uninstall
+brew uninstall lazylog
+```
 
 ### Build from source
 
@@ -112,6 +119,12 @@ cargo run -- --filter "ERROR"
 - Use mouse click or `1`/`2`/`3` to focus different panels and scroll within them
 
 ## Development
+
+### Prerequisites
+
+- Rust toolchain 1.77+ ([install via rustup](https://rustup.rs))
+- **iOS support** (optional): Requires `idevicesyslog` - install via `brew install libimobiledevice` on macOS
+- **Android support** (optional): Requires `adb` - install via `brew install android-platform-tools` on macOS
 
 ### Build and test
 
