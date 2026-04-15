@@ -78,7 +78,15 @@ cargo run -- --android-effect
 
 # Apply filter on startup
 cargo run -- --filter "ERROR"
+
+# Stream logs to stdout without the TUI
+cargo run -- --headless --dyeh-preview
+
+# Headless mode also works with filters and other provider modes
+cargo run -- --headless --android-effect --filter "ERROR"
 ```
+
+In headless mode, lazylog streams matching logs to stdout continuously and prints each parsed item using its full `raw_content`.
 
 ### Key bindings
 
