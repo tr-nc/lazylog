@@ -27,7 +27,7 @@ fn print_usage() {
     eprintln!("Usage: lazylog [OPTIONS]");
     eprintln!();
     eprintln!("Options:");
-    eprintln!("  --dyeh, -dy             Use DYEH file-based log provider");
+    eprintln!("  --dyeh-preview, -dyp    Use DYEH file-based log provider");
     eprintln!("  --ios, -i               Use iOS log provider");
     eprintln!("  --ios-effect, -ie       Use iOS log provider [EFFECT MODE]");
     eprintln!("  --android, -a           Use Android log provider");
@@ -148,7 +148,9 @@ impl CliOptions {
                 "--android-effect" | "-ae" => {
                     set_provider_option(&mut usage_option, UsageOptions::AndroidEffect)?
                 }
-                "--dyeh" | "-dy" => set_provider_option(&mut usage_option, UsageOptions::Dyeh)?,
+                "--dyeh-preview" | "-dyp" => {
+                    set_provider_option(&mut usage_option, UsageOptions::Dyeh)?
+                }
                 "--version" | "-v" => {
                     set_provider_option(&mut usage_option, UsageOptions::Version)?
                 }
