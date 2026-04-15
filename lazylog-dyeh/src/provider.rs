@@ -11,26 +11,28 @@ use std::{
 pub struct DyehLogProvider {
     log_dir_path: PathBuf,
     log_file_path: PathBuf,
+    source: DyehLogSource,
     last_len: u64,
     prev_meta: Option<metadata::MetaSnap>,
 }
 
+#[derive(Clone, Copy)]
+enum DyehLogSource {
+    Preview,
+    Editor,
+}
+
 impl DyehLogProvider {
     pub fn new(log_dir_path: PathBuf) -> Self {
-        // DYEH 540 adaptation: check both "Logs" and "Log" subdirectories
-        let mut preview_log_dirs = Vec::new();
+        Self::new_with_source(log_dir_path, DyehLogSource::Preview)
+    }
 
-        let logs_path = log_dir_path.join("Logs");
-        if logs_path.exists() {
-            preview_log_dirs.extend(file_finder::find_preview_log_dirs(&logs_path));
-        }
+    pub fn new_editor(log_dir_path: PathBuf) -> Self {
+        Self::new_with_source(log_dir_path, DyehLogSource::Editor)
+    }
 
-        let log_path = log_dir_path.join("Log");
-        if log_path.exists() {
-            preview_log_dirs.extend(file_finder::find_preview_log_dirs(&log_path));
-        }
-
-        let log_file_path = match file_finder::find_latest_live_log(preview_log_dirs) {
+    fn new_with_source(log_dir_path: PathBuf, source: DyehLogSource) -> Self {
+        let log_file_path = match Self::find_latest_log_file(&log_dir_path, source) {
             Ok(path) => {
                 log::debug!(
                     "DyehLogProvider: Found initial log file: {}",
@@ -47,26 +49,67 @@ impl DyehLogProvider {
         Self {
             log_dir_path,
             log_file_path,
+            source,
             last_len: 0,
             prev_meta: None,
         }
     }
 
+    fn find_latest_log_file(log_dir_path: &Path, source: DyehLogSource) -> Result<PathBuf> {
+        let logs_path = log_dir_path.join("Logs");
+        let log_path = log_dir_path.join("Log");
+
+        match source {
+            DyehLogSource::Preview => {
+                let mut preview_log_dirs = Vec::new();
+
+                if logs_path.exists() {
+                    preview_log_dirs.extend(file_finder::find_preview_log_dirs(&logs_path));
+                }
+
+                if log_path.exists() {
+                    preview_log_dirs.extend(file_finder::find_preview_log_dirs(&log_path));
+                }
+
+                file_finder::find_latest_live_log(preview_log_dirs).map_err(anyhow::Error::msg)
+            }
+            DyehLogSource::Editor => {
+                let mut editor_log_files = Vec::new();
+
+                if logs_path.exists() {
+                    if let Ok(path) = file_finder::find_latest_editor_log(&logs_path) {
+                        editor_log_files.push(path);
+                    }
+                }
+
+                if log_path.exists() {
+                    if let Ok(path) = file_finder::find_latest_editor_log(&log_path) {
+                        editor_log_files.push(path);
+                    }
+                }
+
+                if editor_log_files.is_empty() {
+                    anyhow::bail!("No editor log files found.");
+                }
+
+                let mut latest_file = editor_log_files[0].clone();
+                let mut latest_modified = std::fs::metadata(&latest_file)?.modified()?;
+
+                for file_path in editor_log_files.into_iter().skip(1) {
+                    let modified = std::fs::metadata(&file_path)?.modified()?;
+                    if modified > latest_modified {
+                        latest_modified = modified;
+                        latest_file = file_path;
+                    }
+                }
+
+                Ok(latest_file)
+            }
+        }
+    }
+
     fn check_for_newer_log_file(&self) -> Result<Option<PathBuf>> {
-        // DYEH 540 adaptation: check both "Logs" and "Log" subdirectories
-        let mut preview_log_dirs = Vec::new();
-
-        let logs_path = self.log_dir_path.join("Logs");
-        if logs_path.exists() {
-            preview_log_dirs.extend(file_finder::find_preview_log_dirs(&logs_path));
-        }
-
-        let log_path = self.log_dir_path.join("Log");
-        if log_path.exists() {
-            preview_log_dirs.extend(file_finder::find_preview_log_dirs(&log_path));
-        }
-
-        match file_finder::find_latest_live_log(preview_log_dirs) {
+        match Self::find_latest_log_file(&self.log_dir_path, self.source) {
             Ok(latest_file_path) => {
                 if !self.log_file_path.exists() {
                     log::debug!(

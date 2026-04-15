@@ -28,6 +28,7 @@ fn print_usage() {
     eprintln!();
     eprintln!("Options:");
     eprintln!("  --dyeh-preview, -dyp    Use DYEH file-based log provider");
+    eprintln!("  --dyeh-editor, -dye     Use DYEH editor log provider");
     eprintln!("  --ios, -i               Use iOS log provider");
     eprintln!("  --ios-effect, -ie       Use iOS log provider [EFFECT MODE]");
     eprintln!("  --android, -a           Use Android log provider");
@@ -82,11 +83,12 @@ fn check_adb_available() -> io::Result<()> {
 
 #[derive(PartialEq, Eq)]
 enum UsageOptions {
+    DyehPreview,
+    DyehEditor,
     IosEffect,
     IosFull,
     Android,
     AndroidEffect,
-    Dyeh,
     Help,
     Version,
     None, // when no args provided, show help
@@ -95,11 +97,12 @@ enum UsageOptions {
 fn get_mode_name(option: &UsageOptions) -> Option<String> {
     use UsageOptions::*;
     match option {
+        DyehPreview => Some("dyeh preview".to_string()),
+        DyehEditor => Some("dyeh editor".to_string()),
         IosEffect => Some("ios effect".to_string()),
         IosFull => Some("ios".to_string()),
         Android => Some("android".to_string()),
         AndroidEffect => Some("android effect".to_string()),
-        Dyeh => Some("dyeh".to_string()),
         Help | Version | None => Option::None,
     }
 }
@@ -149,7 +152,10 @@ impl CliOptions {
                     set_provider_option(&mut usage_option, UsageOptions::AndroidEffect)?
                 }
                 "--dyeh-preview" | "-dyp" => {
-                    set_provider_option(&mut usage_option, UsageOptions::Dyeh)?
+                    set_provider_option(&mut usage_option, UsageOptions::DyehPreview)?
+                }
+                "--dyeh-editor" | "-dye" => {
+                    set_provider_option(&mut usage_option, UsageOptions::DyehEditor)?
                 }
                 "--version" | "-v" => {
                     set_provider_option(&mut usage_option, UsageOptions::Version)?
@@ -281,13 +287,26 @@ fn main() -> io::Result<()> {
             let desc = build_desc(parser, UsageOptions::AndroidEffect);
             start_with_desc(&mut terminal, provider, desc)
         }
-        UsageOptions::Dyeh => {
+        UsageOptions::DyehPreview => {
             if let Some(dir) = dirs::home_dir() {
                 let log_dir_path = dir.join("Library/Application Support/DouyinAR");
                 let provider = DyehLogProvider::new(log_dir_path);
                 let parser: Arc<dyn lazylog_framework::provider::LogParser> =
                     Arc::new(DyehParser::new());
-                let desc = build_desc(parser, UsageOptions::Dyeh);
+                let desc = build_desc(parser, UsageOptions::DyehPreview);
+                start_with_desc(&mut terminal, provider, desc)
+            } else {
+                eprintln!("Error: Could not determine home directory");
+                Ok(())
+            }
+        }
+        UsageOptions::DyehEditor => {
+            if let Some(dir) = dirs::home_dir() {
+                let log_dir_path = dir.join("Library/Application Support/DouyinAR");
+                let provider = DyehLogProvider::new_editor(log_dir_path);
+                let parser: Arc<dyn lazylog_framework::provider::LogParser> =
+                    Arc::new(DyehParser::new());
+                let desc = build_desc(parser, UsageOptions::DyehEditor);
                 start_with_desc(&mut terminal, provider, desc)
             } else {
                 eprintln!("Error: Could not determine home directory");
