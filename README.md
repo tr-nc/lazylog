@@ -51,8 +51,11 @@ cargo build --release
 ### Basic usage
 
 ```bash
-# Run lazylog with DYEH log provider (default)
-cargo run
+# Run lazylog with DYEH preview logs
+cargo run -- --dyeh-preview
+
+# Use DYEH editor logs
+cargo run -- --dyeh-editor
 
 # Use iOS log provider
 cargo run -- --ios
