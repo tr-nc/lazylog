@@ -162,7 +162,7 @@ impl App {
                 StatusStyle::from_colors(Some(Color::Black), Some(Color::Yellow))
             };
 
-            let padded_text = format!(" - {} - ", event.text);
+            let padded_text = format!(" {} ", event.text);
             status_bar = status_bar.add_status(StatusGravity::Mid, padded_text, mid_style);
         } else if self.visual_mode {
             let visual_hint = "VISUAL: j/k select | y copy | Esc exit";
