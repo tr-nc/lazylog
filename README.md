@@ -113,7 +113,8 @@ Headless mode behavior:
 | `Space`              | Make selected log visible in view                  |
 | `[`/`]`              | Decrease/increase detail level (0-4)               |
 | `/` or `f`           | Enter filter mode                                  |
-| `y`                  | Yank (copy) current log item to clipboard          |
+| `v`                  | Enter visual mode                                  |
+| `y`                  | Yank (copy) selected log item(s) to clipboard      |
 | `a`                  | Yank (copy) all displayed logs to clipboard        |
 | `c`                  | Clear all logs                                     |
 | `w`                  | Toggle text wrapping                               |
@@ -121,7 +122,7 @@ Headless mode behavior:
 | `b`                  | Toggle debug logs visibility                       |
 | `1`/`2`/`3`          | Focus logs/details/debug panel                     |
 | `?`                  | Show/hide help popup                               |
-| `Esc`                | Go back / Clear filter                             |
+| `Esc`                | Exit visual mode / Go back / Clear filter          |
 | `q`                  | Quit                                               |
 | `Ctrl+C`             | Quit                                               |
 | Mouse scroll         | Vertical scrolling through logs or focused panel   |
@@ -133,6 +134,15 @@ Headless mode behavior:
 - Type to filter logs by content
 - `Enter` - Apply filter and exit filter mode
 - `Esc` - Cancel filter and exit filter mode
+
+### Visual mode
+
+- Press `v` on a log item to start visual selection
+- Press `j`/`k` to expand or shrink the consecutive selection
+- Press `y` to copy selected log items to the clipboard
+- Press `Esc` to exit visual mode
+- Filter mode cannot be entered while visual mode is active
+- When multiple log items are selected, the details panel shows a hint instead of item details
 
 ### Navigation
 
