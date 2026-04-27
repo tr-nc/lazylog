@@ -107,6 +107,8 @@ struct App {
     filter_input: String, // Current filter input text (includes leading '/')
     filter_focused: bool, // Whether the filter input is focused
     filter_engine: FilterEngine, // Filtering engine with incremental + parallel support
+    visual_mode: bool,    // Whether visual multi-selection mode is active
+    visual_anchor: Option<usize>, // Displayed-log index where visual selection started
     detail_level: LogDetailLevel, // Detail level for log display
     parser: Arc<dyn LogParser>, // Parser for log items (handles both parsing and formatting)
     mode_name: Option<String>, // Mode name to display in status bar
@@ -219,6 +221,8 @@ impl App {
             filter_input: initial_filter_input,
             filter_focused: false,
             filter_engine,
+            visual_mode: false,
+            visual_anchor: None,
             detail_level: 1, // default detail level (was Basic)
             parser: desc.parser,
             mode_name,

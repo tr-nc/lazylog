@@ -164,6 +164,14 @@ impl App {
 
             let padded_text = format!(" - {} - ", event.text);
             status_bar = status_bar.add_status(StatusGravity::Mid, padded_text, mid_style);
+        } else if self.visual_mode {
+            let visual_hint = "VISUAL: j/k select | y copy | Esc exit";
+            if self.filter_input.is_empty() {
+                status_bar = status_bar.add_status_plain(StatusGravity::Mid, visual_hint);
+            } else {
+                let text = format!("{} | {}", self.filter_input, visual_hint);
+                status_bar = status_bar.add_status_plain(StatusGravity::Mid, &text);
+            }
         } else if !self.filter_input.is_empty() {
             status_bar = status_bar.add_status_plain(StatusGravity::Mid, &self.filter_input);
         } else {
@@ -189,14 +197,15 @@ impl App {
             Line::from(""),
             Line::from("Actions:".bold()),
             Line::from("  / or f   - Enter filter mode"),
-            Line::from("  y        - Copy current log to clipboard"),
+            Line::from("  v        - Enter visual mode"),
+            Line::from("  y        - Copy selected log(s) to clipboard"),
             Line::from("  a        - Copy all displayed logs to clipboard"),
             Line::from("  c        - Clear all logs"),
             Line::from("  w        - Toggle text wrapping"),
             Line::from("  m        - Toggle mouse capture (select text when off)"),
             Line::from("  [        - Decrease detail level"),
             Line::from("  ]        - Increase detail level"),
-            Line::from("  Esc      - Go back / clear filter"),
+            Line::from("  Esc      - Exit visual / go back / clear filter"),
             Line::from("  q        - Quit program"),
             Line::from(""),
             Line::from("Focus:".bold()),
@@ -429,6 +438,7 @@ impl App {
         let logs_block_id = self.logs_block.id();
 
         let selected_index = self.displaying_logs.state.selected();
+        let visual_selection_range = self.visual_selection_range();
         let total_lines = self.displaying_logs.len();
 
         // Calculate content first to determine if horizontal scrollbar is needed
@@ -517,8 +527,11 @@ impl App {
                 _ => Style::default().fg(theme::TEXT_FG_COLOR),
             };
 
-            let is_selected = selected_index == Some(i);
-            let display_text = if is_selected {
+            let is_cursor = selected_index == Some(i);
+            let is_visual_selected =
+                visual_selection_range.is_some_and(|(start, end)| i >= start && i <= end);
+            let is_selected = is_cursor || is_visual_selected;
+            let display_text = if is_cursor {
                 format!(" → {}", detail_text)
             } else {
                 format!("   {}", detail_text)
@@ -627,6 +640,24 @@ impl App {
     }
 
     pub(super) fn render_details(&mut self, area: Rect, buf: &mut Buffer) -> Result<()> {
+        if self.visual_selection_len() > 1 {
+            if self.prev_selected_log_id.is_some() {
+                self.prev_selected_log_id = None;
+                self.details_block.set_scroll_position(0);
+                self.details_block.set_horizontal_scroll_position(0);
+            }
+
+            return self.render_scrollable_block(
+                area,
+                buf,
+                ScrollableBlockType::Details,
+                vec![Line::from(
+                    "Select only one log item to view the details".italic(),
+                )],
+                "Select only one log item to view the details".len(),
+            );
+        }
+
         // handle prev_selected_log_id state management and scroll reset
         let (indices, state) = (&self.displaying_logs.indices, &self.displaying_logs.state);
 

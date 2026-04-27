@@ -110,25 +110,41 @@ impl App {
     }
 
     pub(super) fn yank_current_log(&mut self) -> Result<()> {
-        let (indices, state) = (&self.displaying_logs.indices, &self.displaying_logs.state);
-
-        let Some(i) = state.selected() else {
+        let Some((start, end)) = self.selected_display_range_for_action() else {
             log::debug!("No log item selected for yanking");
             return Ok(());
         };
 
-        // access items in natural order
-        let raw_idx = indices[i];
-        let item = &self.raw_logs[raw_idx];
+        let indices = &self.displaying_logs.indices;
+
+        let yank_contents: Vec<String> = (start..=end)
+            .filter_map(|i| indices.get(i))
+            .map(|&raw_idx| self.parser.make_yank_content(&self.raw_logs[raw_idx]))
+            .collect();
+
+        if yank_contents.is_empty() {
+            log::debug!("No log item selected for yanking");
+            return Ok(());
+        }
 
         let mut clipboard = Clipboard::new()?;
-        let yank_content = self.parser.make_yank_content(item);
+        let yank_content = yank_contents.join("\n\n");
         clipboard.set_text(&yank_content)?;
 
-        log::debug!("Copied {} chars to clipboard", yank_content.len());
+        log::debug!(
+            "Copied {} selected log item(s) ({} chars) to clipboard",
+            yank_contents.len(),
+            yank_content.len()
+        );
+
+        let message = if yank_contents.len() == 1 {
+            "selected log copied to clipboard".to_string()
+        } else {
+            format!("{} selected logs copied to clipboard", yank_contents.len())
+        };
 
         self.set_display_event(
-            "selected log copied to clipboard".to_string(),
+            message,
             Duration::from_millis(DISPLAY_EVENT_DURATION_MS),
             None, // use default style
         );
@@ -236,6 +252,50 @@ impl App {
             }
         }
 
+        if self.visual_mode {
+            match key.code {
+                KeyCode::Char('q') => {
+                    log::debug!("Quit key pressed");
+                    self.provider_stop_signal
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                    self.is_exiting = true;
+                    return Ok(());
+                }
+                KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
+                    self.provider_stop_signal
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                    self.is_exiting = true;
+                    return Ok(());
+                }
+                KeyCode::Esc => {
+                    self.exit_visual_mode();
+                    return Ok(());
+                }
+                KeyCode::Char('j') | KeyCode::Down => {
+                    self.handle_log_item_scrolling(true, true)?;
+                    return Ok(());
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    self.handle_log_item_scrolling(false, true)?;
+                    return Ok(());
+                }
+                KeyCode::Char('y') => {
+                    if let Err(e) = self.yank_current_log() {
+                        log::debug!("Failed to yank selected log content: {}", e);
+                    }
+                    return Ok(());
+                }
+                _ => {
+                    self.set_display_event(
+                        "exit visual mode first".to_string(),
+                        Duration::from_millis(DISPLAY_EVENT_DURATION_MS),
+                        None,
+                    );
+                    return Ok(());
+                }
+            }
+        }
+
         match key.code {
             KeyCode::Char('q') => {
                 // always quit, regardless of filter state or other modes
@@ -253,6 +313,10 @@ impl App {
                     self.apply_filter();
                 }
                 // Esc never quits the program
+                Ok(())
+            }
+            KeyCode::Char('v') => {
+                self.enter_visual_mode();
                 Ok(())
             }
             KeyCode::Char('c') => {
@@ -288,6 +352,10 @@ impl App {
                 Ok(())
             }
             KeyCode::Char('/') | KeyCode::Char('f') => {
+                if self.visual_mode {
+                    return Ok(());
+                }
+
                 self.filter_input = "/".to_string();
                 self.filter_focused = true;
                 self.apply_filter();
