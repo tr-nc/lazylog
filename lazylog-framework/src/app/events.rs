@@ -285,7 +285,14 @@ impl App {
                     }
                     return Ok(());
                 }
-                _ => return Ok(()),
+                _ => {
+                    self.set_display_event(
+                        "exit visual mode first".to_string(),
+                        Duration::from_millis(DISPLAY_EVENT_DURATION_MS),
+                        None,
+                    );
+                    return Ok(());
+                }
             }
         }
 
