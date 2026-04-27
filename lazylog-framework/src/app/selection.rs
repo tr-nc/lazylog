@@ -3,6 +3,58 @@ use anyhow::Result;
 use ratatui::prelude::*;
 
 impl App {
+    pub(super) fn enter_visual_mode(&mut self) {
+        if self.displaying_logs.len() == 0 {
+            return;
+        }
+
+        if self.displaying_logs.state.selected().is_none() {
+            self.displaying_logs.state.select(Some(0));
+            self.update_selected_uuid();
+        }
+
+        self.visual_anchor = self.displaying_logs.state.selected();
+        self.visual_mode = self.visual_anchor.is_some();
+    }
+
+    pub(super) fn exit_visual_mode(&mut self) {
+        self.visual_mode = false;
+        self.visual_anchor = None;
+    }
+
+    pub(super) fn visual_selection_range(&self) -> Option<(usize, usize)> {
+        if !self.visual_mode {
+            return None;
+        }
+
+        let len = self.displaying_logs.len();
+        if len == 0 {
+            return None;
+        }
+
+        let anchor = self.visual_anchor?.min(len - 1);
+        let cursor = self.displaying_logs.state.selected()?.min(len - 1);
+
+        Some((anchor.min(cursor), anchor.max(cursor)))
+    }
+
+    pub(super) fn visual_selection_len(&self) -> usize {
+        let Some((start, end)) = self.visual_selection_range() else {
+            return 0;
+        };
+
+        end.saturating_sub(start).saturating_add(1)
+    }
+
+    pub(super) fn selected_display_range_for_action(&self) -> Option<(usize, usize)> {
+        if let Some(range) = self.visual_selection_range() {
+            return Some(range);
+        }
+
+        let selected = self.displaying_logs.state.selected()?;
+        Some((selected, selected))
+    }
+
     pub(super) fn ensure_selection_visible(&mut self) -> Result<()> {
         let selected_index = self.displaying_logs.state.selected();
 
