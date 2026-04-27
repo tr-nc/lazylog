@@ -212,11 +212,6 @@ impl App {
             }
         }
 
-        if key.code == KeyCode::Esc && self.visual_mode {
-            self.exit_visual_mode();
-            return Ok(());
-        }
-
         // handle filter input mode when focused
         if !self.filter_input.is_empty() && self.filter_focused {
             match key.code {
@@ -254,6 +249,43 @@ impl App {
                     return Ok(());
                 }
                 _ => {}
+            }
+        }
+
+        if self.visual_mode {
+            match key.code {
+                KeyCode::Char('q') => {
+                    log::debug!("Quit key pressed");
+                    self.provider_stop_signal
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                    self.is_exiting = true;
+                    return Ok(());
+                }
+                KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
+                    self.provider_stop_signal
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                    self.is_exiting = true;
+                    return Ok(());
+                }
+                KeyCode::Esc => {
+                    self.exit_visual_mode();
+                    return Ok(());
+                }
+                KeyCode::Char('j') | KeyCode::Down => {
+                    self.handle_log_item_scrolling(true, true)?;
+                    return Ok(());
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    self.handle_log_item_scrolling(false, true)?;
+                    return Ok(());
+                }
+                KeyCode::Char('y') => {
+                    if let Err(e) = self.yank_current_log() {
+                        log::debug!("Failed to yank selected log content: {}", e);
+                    }
+                    return Ok(());
+                }
+                _ => return Ok(()),
             }
         }
 
