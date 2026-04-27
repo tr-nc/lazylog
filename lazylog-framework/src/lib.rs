@@ -153,7 +153,7 @@
 //! - `Ctrl+d`/`Ctrl+u`: page down/up
 //!
 //! ### Filtering
-//! - `/`: enter filter mode
+//! - `/` or `f`: enter filter mode
 //! - Type regex pattern to filter logs in real-time
 //! - `Esc`: clear filter
 //!

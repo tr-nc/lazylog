@@ -112,7 +112,7 @@ Headless mode behavior:
 | `h`/`l` or `←`/`→`   | Horizontal scrolling (left/right)                  |
 | `Space`              | Make selected log visible in view                  |
 | `[`/`]`              | Decrease/increase detail level (0-4)               |
-| `/`                  | Enter filter mode                                  |
+| `/` or `f`           | Enter filter mode                                  |
 | `y`                  | Yank (copy) current log item to clipboard          |
 | `a`                  | Yank (copy) all displayed logs to clipboard        |
 | `c`                  | Clear all logs                                     |

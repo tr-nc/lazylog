@@ -287,7 +287,7 @@ impl App {
                 }
                 Ok(())
             }
-            KeyCode::Char('/') => {
+            KeyCode::Char('/') | KeyCode::Char('f') => {
                 self.filter_input = "/".to_string();
                 self.filter_focused = true;
                 self.apply_filter();
