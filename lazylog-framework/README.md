@@ -311,6 +311,7 @@ start_with_desc(&mut terminal, provider, desc)?;
 | Key | Action |
 |-----|--------|
 | `/` | Enter filter mode |
+| `v` | Toggle visual mode |
 | `y` | Copy current log to clipboard |
 | `a` | Copy all displayed logs to clipboard |
 | `c` | Clear all logs |

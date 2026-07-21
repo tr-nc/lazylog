@@ -18,3 +18,4 @@ lazylog-android = { path = "../lazylog-android" }
 crossterm.workspace = true
 dirs.workspace = true
 ratatui.workspace = true
+signal-hook.workspace = true

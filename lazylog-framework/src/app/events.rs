@@ -267,7 +267,7 @@ impl App {
                     self.is_exiting = true;
                     return Ok(());
                 }
-                KeyCode::Esc => {
+                KeyCode::Char('v') | KeyCode::Esc => {
                     self.exit_visual_mode();
                     return Ok(());
                 }
@@ -513,5 +513,65 @@ impl App {
             }
             _ => Ok(()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        AppDesc,
+        provider::{LogItem, LogParser, LogProvider},
+    };
+    use crossterm::event::KeyModifiers;
+    use std::sync::Arc;
+
+    struct NoopProvider;
+
+    impl LogProvider for NoopProvider {
+        fn start(&mut self) -> Result<()> {
+            Ok(())
+        }
+
+        fn stop(&mut self) -> Result<()> {
+            Ok(())
+        }
+
+        fn poll_logs(&mut self) -> Result<Vec<String>> {
+            Ok(Vec::new())
+        }
+    }
+
+    struct NoopParser;
+
+    impl LogParser for NoopParser {
+        fn parse(&self, _raw_log: &str) -> Option<LogItem> {
+            None
+        }
+
+        fn format_preview(&self, item: &LogItem, _detail_level: u8) -> String {
+            item.content.clone()
+        }
+
+        fn get_searchable_text(&self, item: &LogItem, _detail_level: u8) -> String {
+            item.content.clone()
+        }
+    }
+
+    #[test]
+    fn v_exits_visual_mode() {
+        let desc = AppDesc::new(Arc::new(NoopParser));
+        let mut app = App::new(NoopProvider, desc);
+        app.visual_mode = true;
+        app.visual_anchor = Some(0);
+
+        let result = app.handle_key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE));
+        let visual_mode = app.visual_mode;
+        let visual_anchor = app.visual_anchor;
+        app.cleanup();
+
+        result.unwrap();
+        assert!(!visual_mode);
+        assert_eq!(visual_anchor, None);
     }
 }

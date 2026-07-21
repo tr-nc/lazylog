@@ -197,7 +197,7 @@ impl App {
             Line::from(""),
             Line::from("Actions:".bold()),
             Line::from("  / or f   - Enter filter mode"),
-            Line::from("  v        - Enter visual mode"),
+            Line::from("  v        - Toggle visual mode"),
             Line::from("  y        - Copy selected log(s) to clipboard"),
             Line::from("  a        - Copy all displayed logs to clipboard"),
             Line::from("  c        - Clear all logs"),

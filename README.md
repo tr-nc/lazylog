@@ -7,7 +7,8 @@ Lazylog provides instant log file access with structured parsing, smooth scrolli
 ## Features
 
 - **Multiple log sources** - Support for DYEH file logs, iOS device logs, and Android device logs
-- **Headless streaming** - Dump parsed logs to stdout for scripting and coding agent workflows
+- **Headless streaming** - Dump parsed logs to stdout for scripting workflows
+- **Agent captures** - Save complete plain-text sessions while keeping agent stdout bounded
 - **Real-time monitoring** - Automatically follows log updates like `tail -f`
 - **Vim-like navigation** - Use `j/k` or arrow keys for navigation, `h/l` for horizontal scrolling
 - **Smart log parsing** - Automatically detects timestamps, log levels, tags, and messages
@@ -103,6 +104,34 @@ Headless mode behavior:
 - Applies startup filters from `--filter`
 - Prints each matching parsed item using its full `raw_content`
 
+### Agent mode
+
+Use `--agent` for coding-agent sessions. It writes every matching parsed item to a plain-text
+capture file while limiting the stdout preview to 500 lines and 64 KiB by default.
+
+```bash
+# Capture for 30 seconds and use an automatically generated capture path
+cargo run -- --agent --dyeh-preview --duration 30
+
+# Choose the capture path and preview limits
+cargo run -- --agent --android-effect --filter "ERROR" \
+  --capture-file ./android-errors.log \
+  --preview-lines 200 \
+  --preview-bytes 32768
+```
+
+Agent mode behavior:
+
+- Prints the absolute capture path when the session starts
+- Writes the complete filtered session without ANSI color codes
+- Stops sending log items to stdout when either preview limit is reached, while capture continues
+- Stops and flushes cleanly on `Ctrl+C`, `SIGTERM`, or after `--duration`
+- Refuses to overwrite an existing `--capture-file`
+
+The generated capture path is stored under the platform-local data directory in
+`lazylog/captures`. A complete capture means everything Lazylog observed during that invocation;
+live providers do not necessarily include logs from before startup.
+
 ### Key bindings
 
 | Key                  | Action                                             |
@@ -113,7 +142,7 @@ Headless mode behavior:
 | `Space`              | Make selected log visible in view                  |
 | `[`/`]`              | Decrease/increase detail level (0-4)               |
 | `/` or `f`           | Enter filter mode                                  |
-| `v`                  | Enter visual mode                                  |
+| `v`                  | Toggle visual mode                                 |
 | `y`                  | Yank (copy) selected log item(s) to clipboard      |
 | `a`                  | Yank (copy) all displayed logs to clipboard        |
 | `c`                  | Clear all logs                                     |
@@ -137,10 +166,10 @@ Headless mode behavior:
 
 ### Visual mode
 
-- Press `v` on a log item to start visual selection
+- Press `v` on a log item to start visual selection; press it again to exit
 - Press `j`/`k` to expand or shrink the consecutive selection
 - Press `y` to copy selected log items to the clipboard
-- Press `Esc` to exit visual mode
+- Press `v` or `Esc` to exit visual mode
 - Filter mode cannot be entered while visual mode is active
 - When multiple log items are selected, the details panel shows a hint instead of item details
 

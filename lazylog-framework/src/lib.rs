@@ -159,10 +159,10 @@
 //! - Filter mode cannot be entered while visual mode is active
 //!
 //! ### Visual Mode
-//! - `v`: enter visual mode
+//! - `v`: toggle visual mode
 //! - `j`/`k`: expand or shrink consecutive selection
 //! - `y`: copy selected log item(s)
-//! - `Esc`: exit visual mode
+//! - `v` or `Esc`: exit visual mode
 //!
 //! ### Detail Levels
 //! - `+`/`-`: increase/decrease detail level (0-4)
