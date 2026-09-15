@@ -196,6 +196,12 @@ pub enum IosAppState {
     NotInstalled,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IosAppAvailability {
+    Installed,
+    NotInstalled,
+}
+
 fn installed_app_url<'a>(document: &'a Value, bundle_id: &str) -> Option<&'a str> {
     document
         .pointer("/result/apps")
@@ -206,6 +212,35 @@ fn installed_app_url<'a>(document: &'a Value, bundle_id: &str) -> Option<&'a str
         })
         .and_then(|app| app.get("url"))
         .and_then(Value::as_str)
+}
+
+fn app_availabilities_from_document(
+    apps: &Value,
+    bundle_ids: &[&str],
+) -> Result<Vec<IosAppAvailability>> {
+    apps.pointer("/result/apps")
+        .and_then(Value::as_array)
+        .ok_or_else(|| anyhow::anyhow!("devicectl returned no installed App list"))?;
+
+    Ok(bundle_ids
+        .iter()
+        .map(|bundle_id| {
+            if installed_app_url(apps, bundle_id).is_some() {
+                IosAppAvailability::Installed
+            } else {
+                IosAppAvailability::NotInstalled
+            }
+        })
+        .collect())
+}
+
+/// Report installation availability for multiple Apps.
+pub fn app_availabilities(device: &str, bundle_ids: &[&str]) -> Result<Vec<IosAppAvailability>> {
+    let apps = run_devicectl_json(
+        &["device", "info", "apps", "--device", device],
+        "app-availability",
+    )?;
+    app_availabilities_from_document(&apps, bundle_ids)
 }
 
 fn app_states_from_documents(
@@ -788,6 +823,57 @@ mod tests {
             app_states_from_documents(&apps, &processes, &["com.example.missing"]).unwrap(),
             vec![IosAppState::NotInstalled]
         );
+    }
+
+    #[test]
+    fn empty_app_result_reports_not_installed_availability() {
+        let apps: Value =
+            serde_json::from_str(r#"{"info":{"outcome":"success"},"result":{"apps":[]}}"#).unwrap();
+
+        assert_eq!(
+            app_availabilities_from_document(&apps, &["com.example.missing"]).unwrap(),
+            vec![IosAppAvailability::NotInstalled]
+        );
+    }
+
+    #[test]
+    fn app_availability_matches_exact_bundle_identifiers() {
+        let apps: Value = serde_json::from_str(
+            r#"{
+              "result": {"apps": [{
+                "bundleIdentifier": "com.example.one",
+                "url": "file:///apps/One.app/"
+              }, {
+                "bundleIdentifier": "com.example.one.widget",
+                "url": "file:///apps/OneWidget.app/"
+              }]}
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            app_availabilities_from_document(
+                &apps,
+                &[
+                    "com.example.one",
+                    "com.example.one.widget",
+                    "com.example.two"
+                ]
+            )
+            .unwrap(),
+            vec![
+                IosAppAvailability::Installed,
+                IosAppAvailability::Installed,
+                IosAppAvailability::NotInstalled,
+            ]
+        );
+    }
+
+    #[test]
+    fn malformed_app_result_is_a_detection_failure() {
+        let apps: Value = serde_json::from_str(r#"{"info":{"outcome":"success"}}"#).unwrap();
+
+        assert!(app_availabilities_from_document(&apps, &["com.example.one"]).is_err());
     }
 
     #[test]
