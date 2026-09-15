@@ -1,7 +1,7 @@
 ---
 name: lazylog-headless-debugger
 description: Uses lazylog agent and headless modes for non-interactive log debugging across all supported providers.
-version: 0.2.0
+version: 0.3.0
 ---
 
 # Lazylog Agent Debugger
@@ -11,10 +11,10 @@ Use this skill when you want to debug logs with `lazylog` in a non-interactive w
 ## Scope
 
 - Install `lazylog` for end users with Homebrew.
-- Use `--agent` for coding-agent-driven debugging with bounded stdout and a complete capture file.
+- Use `--agent` for coding-agent-driven debugging with an empty stdout and a complete temporary capture file.
 - Use `--headless` when an unbounded stdout stream is explicitly needed by a script.
 - Stream logs from any supported provider directly to the terminal.
-- Narrow noisy output with `--filter` when needed.
+- Narrow TUI or headless output with `--filter` when needed.
 
 ## Installation
 
@@ -51,13 +51,13 @@ Agent and headless modes support all current providers:
 
 1. Pick the provider that matches the environment you want to debug.
 2. Add `--agent`.
-3. Add `--filter` if you already know the error keyword or tag you want.
-4. Add `--duration` when a bounded capture window is appropriate.
-5. Inspect the stdout preview first, then read or search the reported capture path if output was truncated.
+3. Add `--duration` when a bounded capture window is appropriate.
+4. Read the capture path reported on stderr.
+5. Read or search that file directly, for example with `rg`.
 6. Stop the command manually when you are done if no duration was provided.
 
 For coding agents, prefer `--agent`. It prevents a noisy stream from consuming the command-output
-budget while preserving the complete filtered session on disk.
+budget by writing the complete parsed session to a unique OS temporary file and nothing to stdout.
 
 ## Common Commands
 
@@ -73,10 +73,10 @@ Debug DYEH editor logs:
 lazylog --agent --dyeh-editor --duration 30
 ```
 
-Debug Android effect logs with a startup filter:
+Debug Android effect logs:
 
 ```bash
-lazylog --agent --android --filter "ERROR" --duration 30
+lazylog --agent --android --duration 30
 ```
 
 Debug EffectCam iOS effect logs non-interactively:
@@ -114,12 +114,14 @@ attachment. A missing bundle ID is shown as not installed and cannot be confirme
 - interactive iOS/Android device disconnect returns to the shared device picker
 - Android distinguishes device disconnect from capture failure; global `adb logcat` does not
   provide reliable target-App exit detection
-- the complete plain-text capture path is printed when the session starts
-- stdout preview defaults to 500 lines and 64 KiB
-- after either preview limit, capture continues without printing more log items to stdout
+- every agent invocation creates a unique plain-text file under the OS temporary directory at
+  `lazylog/agent-captures`
+- agent mode reports the capture path, status changes, and final statistics on stderr
+- agent mode never writes log content to stdout
+- agent mode captures every parsed item and rejects `--filter`; search the capture file instead
 - headless mode remains an unbounded colorized stream until interrupted
-- `--filter` is applied before printing
-- each matching item is printed using full `raw_content`
+- headless `--filter` is applied before printing
+- each matching headless item is printed using full `raw_content`
 - agent captures are plain text; headless output is colorized by log level
 
 ## Headless Color Rules

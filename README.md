@@ -8,7 +8,7 @@ Lazylog provides instant log file access with structured parsing, smooth scrolli
 
 - **Multiple log sources** - Support for DYEH file logs, iOS device logs, and Android device logs
 - **Headless streaming** - Dump parsed logs to stdout for scripting workflows
-- **Agent captures** - Save complete plain-text sessions while keeping agent stdout bounded
+- **Agent captures** - Save complete plain-text sessions to unique temporary files with no stdout log output
 - **Real-time monitoring** - Automatically follows log updates like `tail -f`
 - **Vim-like navigation** - Use `j/k` or arrow keys for navigation, `h/l` for horizontal scrolling
 - **Smart log parsing** - Automatically detects timestamps, log levels, tags, and messages
@@ -108,27 +108,25 @@ Headless mode behavior:
 
 ### Agent mode
 
-Use `--agent` for coding-agent sessions. It writes every matching parsed item to a plain-text
-capture file while limiting the stdout preview to 500 lines and 64 KiB by default.
+Use `--agent` for coding-agent sessions. It writes every parsed item to a unique plain-text
+temporary file and never sends log content to stdout.
 
 ```bash
 # Capture for 30 seconds and use an automatically generated capture path
 cargo run -- --agent --dyeh-preview --duration 30
 
-# Choose the capture path and preview limits
-cargo run -- --agent --android --filter "ERROR" \
-  --capture-file ./android-errors.log \
-  --preview-lines 200 \
-  --preview-bytes 32768
+# Capture iOS logs non-interactively (an explicit app is required)
+cargo run -- --agent --ios --ios-app effectcam --duration 30
 ```
 
 Agent mode behavior:
 
-- Prints the absolute capture path when the session starts
-- Writes the complete filtered session without ANSI color codes
-- Stops sending log items to stdout when either preview limit is reached, while capture continues
+- Creates a new capture file for every invocation under the OS temporary directory at
+  `lazylog/agent-captures`
+- Prints only the capture path, status changes, and final statistics to stderr; stdout stays empty
+- Writes the complete parsed session without ANSI color codes
+- Does not accept `--filter`; search the resulting file with tools such as `rg` after or during capture
 - Stops and flushes cleanly on `Ctrl+C`, `SIGTERM`, or after `--duration`
-- Refuses to overwrite an existing `--capture-file`
 - Requires `--ios-app effectcam|douyin` in iOS mode; Agent mode never opens a picker
 
 ### Connection status
@@ -151,9 +149,9 @@ App list reports installed, not installed, or detection failed as a hint. A pres
 selectable in all three states, and confirming it asks `devicectl` to terminate any existing
 process and relaunch the App with its console attached.
 
-The generated capture path is stored under the platform-local data directory in
-`lazylog/captures`. A complete capture means everything Lazylog observed during that invocation;
-live providers do not necessarily include logs from before startup.
+The generated Agent capture path is stored under the OS temporary directory in
+`lazylog/agent-captures`. A complete capture means everything Lazylog observed during that
+invocation; live providers do not necessarily include logs from before startup.
 
 ### Key bindings
 

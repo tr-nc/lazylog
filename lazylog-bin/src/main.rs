@@ -46,7 +46,7 @@ fn print_usage() {
         "  --agent                 Capture all logs to a unique temporary file (stdout stays empty)"
     );
     eprintln!("  --duration <SECONDS>    Stop agent capture after the given duration");
-    eprintln!("  --filter, -f <QUERY>    Apply filter on startup");
+    eprintln!("  --filter, -f <QUERY>    Apply filter on startup (TUI/headless only)");
     eprintln!("  --version, -v           Print version information");
     eprintln!("  --help, -h              Print this help message");
 }
