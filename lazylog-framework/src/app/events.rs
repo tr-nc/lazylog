@@ -6,7 +6,9 @@ use crossterm::event::{
     self, KeyCode, KeyEvent, KeyEventKind, MouseButton, MouseEvent, MouseEventKind,
 };
 use ratatui::prelude::*;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+const BACK_ESCAPE_INTERVAL: Duration = Duration::from_millis(500);
 
 impl App {
     pub(super) fn handle_mouse_event(&mut self, mouse: &MouseEvent) -> Result<()> {
@@ -296,6 +298,10 @@ impl App {
             }
         }
 
+        if key.code != KeyCode::Esc {
+            self.last_back_escape = None;
+        }
+
         match key.code {
             KeyCode::Char('q') => {
                 // always quit, regardless of filter state or other modes
@@ -310,10 +316,23 @@ impl App {
                     self.filter_input.clear();
                     self.apply_filter();
                 } else if self.has_parent_screen {
-                    self.provider_stop_signal
-                        .store(true, std::sync::atomic::Ordering::Relaxed);
-                    self.exit_reason = AppExitReason::UserBack;
-                    self.is_exiting = true;
+                    let now = Instant::now();
+                    let should_go_back = self.last_back_escape.is_some_and(|previous| {
+                        now.duration_since(previous) <= BACK_ESCAPE_INTERVAL
+                    });
+                    if should_go_back {
+                        self.provider_stop_signal
+                            .store(true, std::sync::atomic::Ordering::Relaxed);
+                        self.exit_reason = AppExitReason::UserBack;
+                        self.is_exiting = true;
+                    } else {
+                        self.last_back_escape = Some(now);
+                        self.set_display_event(
+                            "再次按 Esc 返回选择页".to_string(),
+                            BACK_ESCAPE_INTERVAL,
+                            None,
+                        );
+                    }
                 }
                 Ok(())
             }
@@ -578,10 +597,14 @@ mod tests {
     }
 
     #[test]
-    fn escape_returns_a_mobile_session_to_its_parent_screen() {
+    fn double_escape_returns_a_mobile_session_to_its_parent_screen() {
         let desc = AppDesc::new(Arc::new(NoopParser));
         let mut app = App::new(NoopProvider, desc);
         app.has_parent_screen = true;
+
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
+            .unwrap();
+        assert!(!app.is_exiting);
 
         let result = app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         let exit_reason = app.exit_reason;
@@ -591,6 +614,40 @@ mod tests {
         result.unwrap();
         assert!(is_exiting);
         assert_eq!(exit_reason, AppExitReason::UserBack);
+    }
+
+    #[test]
+    fn expired_escape_does_not_return_to_parent_screen() {
+        let desc = AppDesc::new(Arc::new(NoopParser));
+        let mut app = App::new(NoopProvider, desc);
+        app.has_parent_screen = true;
+        app.last_back_escape =
+            Some(Instant::now() - BACK_ESCAPE_INTERVAL - Duration::from_millis(1));
+
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
+            .unwrap();
+        let is_exiting = app.is_exiting;
+        app.cleanup();
+
+        assert!(!is_exiting);
+    }
+
+    #[test]
+    fn another_key_breaks_the_double_escape_sequence() {
+        let desc = AppDesc::new(Arc::new(NoopParser));
+        let mut app = App::new(NoopProvider, desc);
+        app.has_parent_screen = true;
+
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
+            .unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE))
+            .unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
+            .unwrap();
+        let is_exiting = app.is_exiting;
+        app.cleanup();
+
+        assert!(!is_exiting);
     }
 
     #[test]

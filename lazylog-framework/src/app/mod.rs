@@ -185,6 +185,7 @@ struct App {
     suppress_mouse_up: bool,
     last_click_time: Option<Instant>,
     last_click_pos: Option<(u16, u16)>,
+    last_back_escape: Option<Instant>,
 }
 
 #[derive(Copy, Clone)]
@@ -302,6 +303,7 @@ impl App {
             suppress_mouse_up: false,
             last_click_time: None,
             last_click_pos: None,
+            last_back_escape: None,
         }
     }
 }
