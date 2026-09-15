@@ -118,7 +118,6 @@ impl TabKind {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DisplayAvailability {
-    Checking,
     Installed,
     NotInstalled,
     DetectionFailed,
@@ -127,7 +126,6 @@ enum DisplayAvailability {
 impl DisplayAvailability {
     fn label(self) -> &'static str {
         match self {
-            Self::Checking => "… 检测中",
             Self::Installed => "✓ 已安装",
             Self::NotInstalled => "– 未安装",
             Self::DetectionFailed => "? 检测失败",
@@ -174,7 +172,7 @@ struct PickerState {
     highlighted_app: usize,
     selected_app: Option<IosApp>,
     requested_app: Option<IosApp>,
-    app_availability: [DisplayAvailability; APPS.len()],
+    app_availability: Option<[DisplayAvailability; APPS.len()]>,
     discovery_error: Option<String>,
     has_discovered: bool,
 }
@@ -195,7 +193,7 @@ impl PickerState {
             highlighted_app,
             selected_app: requested_app,
             requested_app,
-            app_availability: [DisplayAvailability::Checking; APPS.len()],
+            app_availability: None,
             discovery_error: None,
             has_discovered: false,
         }
@@ -212,7 +210,7 @@ impl PickerState {
             highlighted_app: 0,
             selected_app: None,
             requested_app: None,
-            app_availability: [DisplayAvailability::Checking; APPS.len()],
+            app_availability: None,
             discovery_error: None,
             has_discovered: false,
         }
@@ -256,7 +254,7 @@ impl PickerState {
 
     fn invalidate_after_device(&mut self) {
         self.selected_app = None;
-        self.app_availability = [DisplayAvailability::Checking; APPS.len()];
+        self.app_availability = None;
     }
 
     fn commit_device(&mut self, id: String) -> PickerAction {
@@ -298,7 +296,7 @@ impl PickerState {
         availability: [DisplayAvailability; APPS.len()],
     ) {
         if self.selected_device.as_deref() == Some(device) {
-            self.app_availability = availability;
+            self.app_availability = Some(availability);
         }
     }
 
@@ -309,7 +307,10 @@ impl PickerState {
         let Some(index) = APPS.iter().position(|candidate| *candidate == app) else {
             return PickerAction::Continue;
         };
-        if self.app_availability[index] != DisplayAvailability::Installed {
+        if self
+            .app_availability
+            .is_none_or(|availability| availability[index] != DisplayAvailability::Installed)
+        {
             return PickerAction::Continue;
         }
         self.selected_app = Some(app);
@@ -598,7 +599,14 @@ fn selected_app_notice(state: &PickerState) -> (String, Style) {
     }
 
     let app = APPS[state.highlighted_app];
-    match state.app_availability[state.highlighted_app] {
+    let Some(availability) = state.app_availability else {
+        return (
+            format!("{CONTENT_INDENT}正在检测已安装的 APP…"),
+            Style::default().fg(Color::DarkGray),
+        );
+    };
+
+    match availability[state.highlighted_app] {
         DisplayAvailability::Installed => (
             format!(
                 "{CONTENT_INDENT}确认后将重新启动 {}；现有进程（如有）会被终止",
@@ -613,10 +621,6 @@ fn selected_app_notice(state: &PickerState) -> (String, Style) {
         DisplayAvailability::DetectionFailed => (
             format!("{CONTENT_INDENT}无法检测 {} 是否已安装", app.display_name()),
             Style::default().fg(Color::Red),
-        ),
-        DisplayAvailability::Checking => (
-            format!("{CONTENT_INDENT}正在检测 {}…", app.display_name()),
-            Style::default().fg(Color::DarkGray),
         ),
     }
 }
@@ -708,10 +712,11 @@ fn draw_picker(
                             .style(Style::default().fg(Color::DarkGray)),
                         list_area,
                     );
-                } else {
-                    let items = APPS.iter().enumerate().map(|(index, app)| {
-                        ListItem::new(app_row(*app, state.app_availability[index]))
-                    });
+                } else if let Some(availability) = state.app_availability {
+                    let items = APPS
+                        .iter()
+                        .enumerate()
+                        .map(|(index, app)| ListItem::new(app_row(*app, availability[index])));
                     let list = List::new(items).highlight_symbol("▶ ").highlight_style(
                         Style::default()
                             .fg(Color::Yellow)
@@ -720,6 +725,13 @@ fn draw_picker(
                     let mut list_state =
                         ListState::default().with_selected(Some(state.highlighted_app));
                     frame.render_stateful_widget(list, list_area, &mut list_state);
+                } else {
+                    frame.render_widget(
+                        Paragraph::new("正在检测已安装的 APP…")
+                            .alignment(Alignment::Center)
+                            .style(Style::default().fg(Color::DarkGray)),
+                        list_area,
+                    );
                 }
             }
         }
@@ -901,30 +913,27 @@ mod tests {
     fn selecting_a_different_device_invalidates_later_steps() {
         let mut state = PickerState::ios(Some("one".to_string()), None);
         state.selected_app = Some(IosApp::Douyin);
-        state.app_availability = [DisplayAvailability::Installed; APPS.len()];
+        state.app_availability = Some([DisplayAvailability::Installed; APPS.len()]);
 
         state.commit_device("two".to_string());
 
         assert_eq!(state.selected_device.as_deref(), Some("two"));
         assert_eq!(state.selected_app, None);
-        assert_eq!(
-            state.app_availability,
-            [DisplayAvailability::Checking; APPS.len()]
-        );
+        assert_eq!(state.app_availability, None);
     }
 
     #[test]
     fn selecting_the_same_device_preserves_later_state() {
         let mut state = PickerState::ios(Some("one".to_string()), None);
         state.selected_app = Some(IosApp::Douyin);
-        state.app_availability = [DisplayAvailability::Installed; APPS.len()];
+        state.app_availability = Some([DisplayAvailability::Installed; APPS.len()]);
 
         state.commit_device("one".to_string());
 
         assert_eq!(state.selected_app, Some(IosApp::Douyin));
         assert_eq!(
             state.app_availability,
-            [DisplayAvailability::Installed; APPS.len()]
+            Some([DisplayAvailability::Installed; APPS.len()])
         );
     }
 
@@ -945,17 +954,23 @@ mod tests {
         assert_eq!(state.commit_app(IosApp::EffectCam), PickerAction::Continue);
 
         state.selected_device = Some("one".to_string());
-        state.app_availability[0] = DisplayAvailability::NotInstalled;
+        state.app_availability = Some([
+            DisplayAvailability::NotInstalled,
+            DisplayAvailability::Installed,
+        ]);
         assert_eq!(state.commit_app(IosApp::EffectCam), PickerAction::Continue);
 
-        state.app_availability[0] = DisplayAvailability::DetectionFailed;
+        state.app_availability = Some([
+            DisplayAvailability::DetectionFailed,
+            DisplayAvailability::Installed,
+        ]);
         assert_eq!(state.commit_app(IosApp::EffectCam), PickerAction::Continue);
     }
 
     #[test]
     fn installed_app_can_be_confirmed() {
         let mut state = PickerState::ios(Some("one".to_string()), None);
-        state.app_availability[0] = DisplayAvailability::Installed;
+        state.app_availability = Some([DisplayAvailability::Installed; APPS.len()]);
 
         assert_eq!(
             state.commit_app(IosApp::EffectCam),
