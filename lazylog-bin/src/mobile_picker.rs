@@ -594,11 +594,7 @@ fn app_row(app: IosApp, availability: Option<DisplayAvailability>) -> String {
         .max()
         .unwrap_or_default();
     let padding = identity_column_width.saturating_sub(identity.width()) + 2;
-    format!(
-        "{identity}{}· {}",
-        " ".repeat(padding),
-        availability.label()
-    )
+    format!("{identity}{}{}", " ".repeat(padding), availability.label())
 }
 
 fn selected_app_notice(state: &PickerState) -> (String, Style) {
@@ -1058,8 +1054,8 @@ mod tests {
     fn app_statuses_start_in_the_same_terminal_column() {
         let effectcam = app_row(IosApp::EffectCam, Some(DisplayAvailability::Installed));
         let douyin = app_row(IosApp::Douyin, Some(DisplayAvailability::Installed));
-        let effectcam_separator = effectcam.find('·').unwrap();
-        let douyin_separator = douyin.find('·').unwrap();
+        let effectcam_separator = effectcam.find('✓').unwrap();
+        let douyin_separator = douyin.find('✓').unwrap();
 
         assert_eq!(
             effectcam[..effectcam_separator].width(),
