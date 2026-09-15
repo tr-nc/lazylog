@@ -198,7 +198,7 @@ where
 
 fn picker_layout(area: Rect) -> [Rect; 3] {
     Layout::vertical([
-        Constraint::Length(3),
+        Constraint::Length(2),
         Constraint::Fill(1),
         Constraint::Length(2),
     ])
@@ -231,15 +231,12 @@ fn draw_picker(
             offset,
         };
 
-        let header = Paragraph::new(vec![
-            Line::styled(
-                format!("选择 {platform} 设备"),
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Line::from("设备列表会自动刷新；第一个设备为当前默认项"),
-        ])
+        let header = Paragraph::new(Line::styled(
+            format!("选择 {platform} 设备"),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ))
         .alignment(Alignment::Center);
         frame.render_widget(header, header_area);
 
