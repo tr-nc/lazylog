@@ -23,7 +23,7 @@ use ringbuf::{
 use std::{
     io,
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
     thread,
@@ -125,10 +125,19 @@ fn start_app<P>(
 where
     P: LogProvider + 'static,
 {
-    color_eyre::install().or(Err(anyhow!("Error installing color_eyre")))?;
+    install_error_handler()?;
 
     let app = App::new(provider, desc.clone());
     app.run(terminal, &desc, exit_on_provider_disconnect)
+}
+
+fn install_error_handler() -> Result<()> {
+    static INSTALL_RESULT: OnceLock<std::result::Result<(), String>> = OnceLock::new();
+
+    match INSTALL_RESULT.get_or_init(|| color_eyre::install().map_err(|error| error.to_string())) {
+        Ok(()) => Ok(()),
+        Err(error) => Err(anyhow!("Error installing color_eyre: {error}")),
+    }
 }
 
 struct App {
@@ -823,5 +832,16 @@ impl Widget for &mut App {
         }
 
         self.clear_event();
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::install_error_handler;
+
+    #[test]
+    fn error_handler_initialization_is_idempotent_across_sessions() {
+        assert!(install_error_handler().is_ok());
+        assert!(install_error_handler().is_ok());
     }
 }
