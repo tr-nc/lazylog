@@ -1,15 +1,9 @@
 mod agent;
-mod device_picker;
-mod ios_app_picker;
+mod mobile_picker;
 
 use agent::{AgentOptions, run_agent};
 use crossterm::event;
-use device_picker::DeviceOption;
-use ios_app_picker::IosApp;
-use lazylog_android::{
-    AndroidEffectParser, AndroidLogProvider, connected_devices as connected_android_devices,
-    default_device_serial,
-};
+use lazylog_android::{AndroidEffectParser, AndroidLogProvider, default_device_serial};
 use lazylog_dyeh::{DyehEditorParser, DyehLogProvider, DyehParser};
 use lazylog_framework::provider::{
     LogItem, LogParser, LogProvider, ProviderDisconnectReason, ProviderStatus,
@@ -17,10 +11,8 @@ use lazylog_framework::provider::{
 use lazylog_framework::{
     AppDesc, AppExitReason, start_with_desc, start_with_desc_until_provider_disconnect,
 };
-use lazylog_ios::{
-    IosEffectParser, IosLogProvider, connected_devices as connected_ios_devices,
-    default_device_identifier,
-};
+use lazylog_ios::{IosEffectParser, IosLogProvider, default_device_identifier};
+use mobile_picker::IosApp;
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
@@ -362,47 +354,6 @@ fn make_ios_provider(device: &str, app: IosApp) -> IosLogProvider {
     IosLogProvider::new_app_console(device, app.bundle_id())
 }
 
-fn ios_device_options() -> io::Result<Vec<DeviceOption>> {
-    connected_ios_devices()
-        .map(|devices| {
-            devices
-                .into_iter()
-                .map(|device| DeviceOption {
-                    id: device.identifier.clone(),
-                    name: device.name,
-                    detail: format!(
-                        "{} · {} · {}",
-                        device.model, device.transport, device.identifier
-                    ),
-                })
-                .collect()
-        })
-        .map_err(io::Error::other)
-}
-
-fn android_device_options() -> io::Result<Vec<DeviceOption>> {
-    connected_android_devices()
-        .map(|devices| {
-            devices
-                .into_iter()
-                .map(|device| {
-                    let detail = match device.product {
-                        Some(product) if product != device.name => {
-                            format!("{} · {}", product, device.serial)
-                        }
-                        _ => device.serial.clone(),
-                    };
-                    DeviceOption {
-                        id: device.serial,
-                        name: device.name,
-                        detail,
-                    }
-                })
-                .collect()
-        })
-        .map_err(io::Error::other)
-}
-
 fn build_app_desc(
     parser: Arc<dyn LogParser>,
     option: &UsageOptions,
@@ -428,35 +379,17 @@ fn run_interactive_ios(
     initial_filter: &Option<String>,
     poll_interval: Duration,
 ) -> anyhow::Result<()> {
-    let mut selected_device = None;
-    let mut selected_app = requested_app;
+    let mut retained_device = None;
+    let mut requested_app = requested_app;
 
     loop {
-        if selected_device.is_none() {
-            let Some(device) = device_picker::pick(terminal, "iOS", ios_device_options)? else {
-                return Ok(());
-            };
-            selected_device = Some(device);
-        }
-
-        if selected_app.is_none() {
-            let device = selected_device
-                .as_deref()
-                .expect("iOS device must be selected before choosing an app");
-            match ios_app_picker::pick(terminal, device)? {
-                ios_app_picker::PickerOutcome::Selected(app) => selected_app = Some(app),
-                ios_app_picker::PickerOutcome::DeviceDisconnected => {
-                    selected_device = None;
-                    continue;
-                }
-                ios_app_picker::PickerOutcome::Cancelled => return Ok(()),
-            }
-        }
-
-        let device = selected_device
-            .as_deref()
-            .expect("iOS device must be selected before starting the provider");
-        let app = selected_app.expect("iOS app must be selected before starting the provider");
+        let Some(selection) =
+            mobile_picker::pick_ios(terminal, retained_device.take(), requested_app.take())?
+        else {
+            return Ok(());
+        };
+        let device = selection.device;
+        let app = selection.app;
         let parser: Arc<dyn LogParser> = Arc::new(IosEffectParser::new());
         let desc = build_app_desc(
             parser,
@@ -467,19 +400,16 @@ fn run_interactive_ios(
         );
         let exit_reason = start_with_desc_until_provider_disconnect(
             terminal,
-            make_ios_provider(device, app),
+            make_ios_provider(&device, app),
             desc,
         )?;
 
         match exit_reason {
             AppExitReason::UserQuit => return Ok(()),
             AppExitReason::ProviderDisconnected(ProviderDisconnectReason::TargetExited) => {
-                selected_app = None;
+                retained_device = Some(device);
             }
-            AppExitReason::ProviderDisconnected(_) => {
-                selected_device = None;
-                selected_app = None;
-            }
+            AppExitReason::ProviderDisconnected(_) => {}
         }
     }
 }
@@ -490,7 +420,7 @@ fn run_interactive_android(
     poll_interval: Duration,
 ) -> anyhow::Result<()> {
     loop {
-        let Some(device) = device_picker::pick(terminal, "Android", android_device_options)? else {
+        let Some(device) = mobile_picker::pick_android(terminal)? else {
             return Ok(());
         };
         let parser: Arc<dyn LogParser> = Arc::new(AndroidEffectParser::new());
