@@ -520,8 +520,8 @@ impl App {
 mod tests {
     use super::*;
     use crate::{
-        AppDesc,
-        provider::{LogItem, LogParser, LogProvider},
+        AppDesc, AppExitReason,
+        provider::{LogItem, LogParser, LogProvider, ProviderDisconnectReason, ProviderStatus},
     };
     use crossterm::event::KeyModifiers;
     use std::sync::Arc;
@@ -573,5 +573,40 @@ mod tests {
         result.unwrap();
         assert!(!visual_mode);
         assert_eq!(visual_anchor, None);
+    }
+
+    #[test]
+    fn mobile_session_returns_the_provider_disconnect_reason() {
+        let desc = AppDesc::new(Arc::new(NoopParser));
+        let mut app = App::new(NoopProvider, desc);
+        *app.provider_status.lock().unwrap() = Some(ProviderStatus::Disconnected(
+            ProviderDisconnectReason::UsbDisconnected,
+        ));
+
+        app.exit_if_provider_disconnected(true);
+        let exit_reason = app.exit_reason;
+        let is_exiting = app.is_exiting;
+        app.cleanup();
+
+        assert!(is_exiting);
+        assert_eq!(
+            exit_reason,
+            AppExitReason::ProviderDisconnected(ProviderDisconnectReason::UsbDisconnected)
+        );
+    }
+
+    #[test]
+    fn legacy_sessions_do_not_exit_on_provider_disconnect() {
+        let desc = AppDesc::new(Arc::new(NoopParser));
+        let mut app = App::new(NoopProvider, desc);
+        *app.provider_status.lock().unwrap() = Some(ProviderStatus::Disconnected(
+            ProviderDisconnectReason::TargetExited,
+        ));
+
+        app.exit_if_provider_disconnected(false);
+        let is_exiting = app.is_exiting;
+        app.cleanup();
+
+        assert!(!is_exiting);
     }
 }

@@ -2,6 +2,7 @@ use super::{App, HELP_POPUP_WIDTH, ScrollableBlockType};
 use crate::{
     app_block::AppBlock,
     content_line_maker::{WrappingMode, calculate_content_width, content_into_lines},
+    provider::ProviderStatus,
     theme,
 };
 use anyhow::Result;
@@ -136,6 +137,20 @@ impl App {
                 StatusGravity::Left,
                 mode.clone(),
                 StatusStyle::new().fg(self.mode_color),
+            );
+        }
+        if let Ok(status) = self.provider_status.lock()
+            && let Some(status) = *status
+        {
+            let color = match status {
+                ProviderStatus::Connecting => Color::Yellow,
+                ProviderStatus::Connected => Color::Green,
+                ProviderStatus::Disconnected(_) => Color::Red,
+            };
+            status_bar = status_bar.add_status(
+                StatusGravity::Left,
+                status.label().to_string(),
+                StatusStyle::new().fg(color),
             );
         }
         status_bar = status_bar.add_status_plain(StatusGravity::Left, wrap_text);

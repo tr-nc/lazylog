@@ -1,4 +1,4 @@
-use lazylog_framework::provider::{LogParser, LogProvider};
+use lazylog_framework::provider::{LogParser, LogProvider, ProviderStatus};
 use signal_hook::{
     consts::{SIGINT, SIGTERM},
     flag, low_level,
@@ -254,6 +254,16 @@ fn remember_first_error(slot: &mut Option<io::Error>, result: io::Result<()>) {
     }
 }
 
+fn report_provider_status<P: LogProvider>(provider: &P, previous: &mut Option<ProviderStatus>) {
+    let current = provider.status();
+    if current != *previous {
+        if let Some(status) = current {
+            eprintln!("[lazylog] 连接状态: {}", status.label());
+        }
+        *previous = current;
+    }
+}
+
 pub(crate) fn run_agent<P>(
     mut provider: P,
     parser: Arc<dyn LogParser>,
@@ -279,6 +289,8 @@ where
 
     let started_at = Instant::now();
     let mut first_error = None;
+    let mut provider_status = None;
+    report_provider_status(&provider, &mut provider_status);
 
     while !stop.load(Ordering::Relaxed)
         && options
@@ -300,6 +312,7 @@ where
             }
             Err(error) => eprintln!("Provider poll error: {error}"),
         }
+        report_provider_status(&provider, &mut provider_status);
 
         let sleep_for = options
             .duration

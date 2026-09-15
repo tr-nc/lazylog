@@ -203,8 +203,8 @@ pub mod provider;
 
 // re-export commonly used types
 pub use provider::{
-    LogDetailLevel, LogItem, LogParser, LogProvider, decrement_detail_level,
-    increment_detail_level, spawn_provider_thread,
+    LogDetailLevel, LogItem, LogParser, LogProvider, ProviderDisconnectReason, ProviderStatus,
+    decrement_detail_level, increment_detail_level, spawn_provider_thread,
 };
 
 // internal modules (not part of public API but needed for app)
@@ -219,4 +219,7 @@ pub(crate) mod theme;
 pub(crate) mod ui_logger;
 
 // public API for running the application
-pub use app::{AppDesc, start_with_desc, start_with_provider};
+pub use app::{
+    AppDesc, AppExitReason, start_with_desc, start_with_desc_until_provider_disconnect,
+    start_with_provider,
+};

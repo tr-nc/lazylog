@@ -1,12 +1,26 @@
 mod agent;
+mod device_picker;
+mod ios_app_picker;
 
 use agent::{AgentOptions, run_agent};
 use crossterm::event;
-use lazylog_android::{AndroidEffectParser, AndroidLogProvider, AndroidParser};
+use device_picker::DeviceOption;
+use ios_app_picker::IosApp;
+use lazylog_android::{
+    AndroidEffectParser, AndroidLogProvider, connected_devices as connected_android_devices,
+    default_device_serial,
+};
 use lazylog_dyeh::{DyehEditorParser, DyehLogProvider, DyehParser};
-use lazylog_framework::provider::{LogItem, LogParser, LogProvider};
-use lazylog_framework::{AppDesc, start_with_desc};
-use lazylog_ios::{IosEffectParser, IosFullParser, IosLogProvider};
+use lazylog_framework::provider::{
+    LogItem, LogParser, LogProvider, ProviderDisconnectReason, ProviderStatus,
+};
+use lazylog_framework::{
+    AppDesc, AppExitReason, start_with_desc, start_with_desc_until_provider_disconnect,
+};
+use lazylog_ios::{
+    IosEffectParser, IosLogProvider, connected_devices as connected_ios_devices,
+    default_device_identifier,
+};
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
@@ -23,7 +37,7 @@ use ratatui::{
 use std::env;
 use std::io;
 use std::panic;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 use std::thread;
@@ -35,10 +49,9 @@ fn print_usage() {
     eprintln!("Options:");
     eprintln!("  --dyeh-preview, -dyp    Use DYEH file-based log provider");
     eprintln!("  --dyeh-editor, -dye     Use DYEH editor log provider");
-    eprintln!("  --ios, -i               Use iOS log provider");
-    eprintln!("  --ios-effect, -ie       Use iOS log provider [EFFECT MODE]");
-    eprintln!("  --android, -a           Use Android log provider");
-    eprintln!("  --android-effect, -ae   Use Android log provider [EFFECT MODE]");
+    eprintln!("  --ios, -i               Use iOS app-console provider [EFFECT MODE]");
+    eprintln!("  --ios-app <APP>         iOS app: effectcam or douyin");
+    eprintln!("  --android, -a           Use Android log provider [EFFECT MODE]");
     eprintln!("  --headless              Stream logs to stdout without the TUI");
     eprintln!("  --agent                 Capture complete logs with bounded stdout preview");
     eprintln!("  --capture-file <PATH>   Agent capture path (must not already exist)");
@@ -50,22 +63,24 @@ fn print_usage() {
     eprintln!("  --help, -h              Print this help message");
 }
 
-fn check_idevicesyslog_available() -> io::Result<()> {
-    // try to execute idevicesyslog --version to check if it's available
-    match Command::new("idevicesyslog").arg("--version").output() {
-        Ok(_) => Ok(()),
+fn check_devicectl_available() -> io::Result<()> {
+    if !Path::new("/usr/bin/script").is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "Error: '/usr/bin/script' was not found. It is required to attach devicectl's console.",
+        ));
+    }
+
+    match Command::new("xcrun").args(["--find", "devicectl"]).output() {
+        Ok(output) if output.status.success() => Ok(()),
+        Ok(_) => Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "Error: 'devicectl' was not found in the selected Xcode.\n\
+             Install or select a current Xcode to use iOS modes.",
+        )),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Err(io::Error::new(
             io::ErrorKind::NotFound,
-            "Error: 'idevicesyslog' not found in PATH.\n\
-                 \n\
-                 To use iOS log providers (-i or -ie), you need to install libimobiledevice.\n\
-                 \n\
-                 Installation instructions:\n\
-                 - macOS: brew install libimobiledevice\n\
-                 - Linux: apt-get install libimobiledevice-utils (Ubuntu/Debian)\n\
-                 - Linux: yum install libimobiledevice (CentOS/RHEL)\n\
-                 \n\
-                 For more information, visit: https://libimobiledevice.org/",
+            "Error: 'xcrun' was not found. Install Xcode to use iOS modes.",
         )),
         Err(e) => Err(e),
     }
@@ -98,8 +113,6 @@ enum UsageOptions {
     DyehPreview,
     DyehEditor,
     IosEffect,
-    IosFull,
-    Android,
     AndroidEffect,
     Help,
     Version,
@@ -111,10 +124,8 @@ fn get_mode_name(option: &UsageOptions) -> Option<String> {
     match option {
         DyehPreview => Some("dyeh preview".to_string()),
         DyehEditor => Some("dyeh editor".to_string()),
-        IosEffect => Some("ios effect".to_string()),
-        IosFull => Some("ios".to_string()),
-        Android => Some("android".to_string()),
-        AndroidEffect => Some("android effect".to_string()),
+        IosEffect => Some("ios".to_string()),
+        AndroidEffect => Some("android".to_string()),
         Help | Version | None => Option::None,
     }
 }
@@ -144,6 +155,7 @@ struct CliOptions {
     headless: bool,
     agent: Option<AgentOptions>,
     initial_filter: Option<String>,
+    ios_app: Option<IosApp>,
 }
 
 fn take_option_value<'a>(
@@ -189,19 +201,20 @@ impl CliOptions {
         let mut preview_bytes = None;
         let mut duration_seconds = None;
         let mut initial_filter = None;
+        let mut ios_app = None;
         let mut help_requested = false;
 
         let mut i = 0;
         while i < args.len() {
             match args[i].as_str() {
-                "--ios-effect" | "-ie" => {
-                    set_provider_option(&mut usage_option, UsageOptions::IosEffect)?
+                "--ios" | "-i" => set_provider_option(&mut usage_option, UsageOptions::IosEffect)?,
+                "--ios-app" => {
+                    let value = take_option_value(args, &mut i, "--ios-app")?;
+                    if ios_app.replace(IosApp::parse(value)?).is_some() {
+                        return Err(duplicate_option("--ios-app"));
+                    }
                 }
-                "--ios" | "-i" => set_provider_option(&mut usage_option, UsageOptions::IosFull)?,
                 "--android" | "-a" => {
-                    set_provider_option(&mut usage_option, UsageOptions::Android)?
-                }
-                "--android-effect" | "-ae" => {
                     set_provider_option(&mut usage_option, UsageOptions::AndroidEffect)?
                 }
                 "--dyeh-preview" | "-dyp" => {
@@ -288,11 +301,30 @@ impl CliOptions {
         if help_requested {
             usage_option = UsageOptions::Help;
         } else {
+            if ios_app.is_some() && !matches!(usage_option, UsageOptions::IosEffect) {
+                print_usage();
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "--ios-app requires --ios",
+                ));
+            }
+
             if headless && agent_requested {
                 print_usage();
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "--headless and --agent cannot be used together",
+                ));
+            }
+
+            if matches!(usage_option, UsageOptions::IosEffect)
+                && (headless || agent_requested)
+                && ios_app.is_none()
+            {
+                print_usage();
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "--ios-app is required with --agent or --headless in iOS mode",
                 ));
             }
 
@@ -321,7 +353,155 @@ impl CliOptions {
             headless,
             agent,
             initial_filter,
+            ios_app,
         })
+    }
+}
+
+fn make_ios_provider(device: &str, app: IosApp) -> IosLogProvider {
+    IosLogProvider::new_app_console(device, app.bundle_id())
+}
+
+fn ios_device_options() -> io::Result<Vec<DeviceOption>> {
+    connected_ios_devices()
+        .map(|devices| {
+            devices
+                .into_iter()
+                .map(|device| DeviceOption {
+                    id: device.identifier.clone(),
+                    name: device.name,
+                    detail: format!(
+                        "{} · {} · {}",
+                        device.model, device.transport, device.identifier
+                    ),
+                })
+                .collect()
+        })
+        .map_err(io::Error::other)
+}
+
+fn android_device_options() -> io::Result<Vec<DeviceOption>> {
+    connected_android_devices()
+        .map(|devices| {
+            devices
+                .into_iter()
+                .map(|device| {
+                    let detail = match device.product {
+                        Some(product) if product != device.name => {
+                            format!("{} · {}", product, device.serial)
+                        }
+                        _ => device.serial.clone(),
+                    };
+                    DeviceOption {
+                        id: device.serial,
+                        name: device.name,
+                        detail,
+                    }
+                })
+                .collect()
+        })
+        .map_err(io::Error::other)
+}
+
+fn build_app_desc(
+    parser: Arc<dyn LogParser>,
+    option: &UsageOptions,
+    initial_filter: &Option<String>,
+    poll_interval: Duration,
+    ios_app: Option<IosApp>,
+) -> AppDesc {
+    let mut desc = AppDesc::new(parser);
+    desc.initial_filter = initial_filter.clone();
+    desc.poll_interval = poll_interval;
+    desc.mode_name = get_mode_name(option);
+    if let Some(app) = ios_app {
+        desc.mode_name = desc
+            .mode_name
+            .map(|name| format!("{name} app console ({})", app.display_name()));
+    }
+    desc
+}
+
+fn run_interactive_ios(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    requested_app: Option<IosApp>,
+    initial_filter: &Option<String>,
+    poll_interval: Duration,
+) -> anyhow::Result<()> {
+    let mut selected_device = None;
+    let mut selected_app = requested_app;
+
+    loop {
+        if selected_device.is_none() {
+            let Some(device) = device_picker::pick(terminal, "iOS", ios_device_options)? else {
+                return Ok(());
+            };
+            selected_device = Some(device);
+        }
+
+        if selected_app.is_none() {
+            let Some(app) = ios_app_picker::pick(terminal)? else {
+                return Ok(());
+            };
+            selected_app = Some(app);
+        }
+
+        let device = selected_device
+            .as_deref()
+            .expect("iOS device must be selected before starting the provider");
+        let app = selected_app.expect("iOS app must be selected before starting the provider");
+        let parser: Arc<dyn LogParser> = Arc::new(IosEffectParser::new());
+        let desc = build_app_desc(
+            parser,
+            &UsageOptions::IosEffect,
+            initial_filter,
+            poll_interval,
+            Some(app),
+        );
+        let exit_reason = start_with_desc_until_provider_disconnect(
+            terminal,
+            make_ios_provider(device, app),
+            desc,
+        )?;
+
+        match exit_reason {
+            AppExitReason::UserQuit => return Ok(()),
+            AppExitReason::ProviderDisconnected(ProviderDisconnectReason::TargetExited) => {
+                selected_app = None;
+            }
+            AppExitReason::ProviderDisconnected(_) => {
+                selected_device = None;
+                selected_app = None;
+            }
+        }
+    }
+}
+
+fn run_interactive_android(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    initial_filter: &Option<String>,
+    poll_interval: Duration,
+) -> anyhow::Result<()> {
+    loop {
+        let Some(device) = device_picker::pick(terminal, "Android", android_device_options)? else {
+            return Ok(());
+        };
+        let parser: Arc<dyn LogParser> = Arc::new(AndroidEffectParser::new());
+        let desc = build_app_desc(
+            parser,
+            &UsageOptions::AndroidEffect,
+            initial_filter,
+            poll_interval,
+            None,
+        );
+        match start_with_desc_until_provider_disconnect(
+            terminal,
+            AndroidLogProvider::new_for_device(device),
+            desc,
+        )? {
+            AppExitReason::UserQuit => return Ok(()),
+            AppExitReason::ProviderDisconnected(_) => {}
+        }
     }
 }
 
@@ -353,6 +533,7 @@ where
     P: LogProvider,
 {
     provider.start().map_err(io::Error::other)?;
+    let mut provider_status = None;
 
     loop {
         match provider.poll_logs() {
@@ -374,7 +555,19 @@ where
             Err(err) => eprintln!("Provider poll error: {}", err),
         }
 
+        report_provider_status(&provider, &mut provider_status);
+
         thread::sleep(poll_interval);
+    }
+}
+
+fn report_provider_status<P: LogProvider>(provider: &P, previous: &mut Option<ProviderStatus>) {
+    let current = provider.status();
+    if current != *previous {
+        if let Some(status) = current {
+            eprintln!("[lazylog] 连接状态: {}", status.label());
+        }
+        *previous = current;
     }
 }
 
@@ -421,21 +614,17 @@ fn main() -> io::Result<()> {
     }
 
     let poll_interval = Duration::from_millis(20);
-    // check if idevicesyslog is available for iOS options
-    if matches!(
-        usage_option,
-        UsageOptions::IosEffect | UsageOptions::IosFull
-    ) && let Err(e) = check_idevicesyslog_available()
+    // iOS modes always use Apple's app-console source.
+    if matches!(usage_option, UsageOptions::IosEffect)
+        && let Err(e) = check_devicectl_available()
     {
         eprintln!("{}", e);
         std::process::exit(1);
     }
 
     // check if adb is available for Android option
-    if matches!(
-        usage_option,
-        UsageOptions::Android | UsageOptions::AndroidEffect
-    ) && let Err(e) = check_adb_available()
+    if matches!(usage_option, UsageOptions::AndroidEffect)
+        && let Err(e) = check_adb_available()
     {
         eprintln!("{}", e);
         std::process::exit(1);
@@ -445,34 +634,29 @@ fn main() -> io::Result<()> {
         let initial_filter = cli_options.initial_filter.as_deref();
         let agent_options = cli_options.agent.as_ref();
         return match usage_option {
-            UsageOptions::IosEffect => run_noninteractive(
-                IosLogProvider::new(),
-                Arc::new(IosEffectParser::new()),
-                initial_filter,
-                poll_interval,
-                agent_options,
-            ),
-            UsageOptions::IosFull => run_noninteractive(
-                IosLogProvider::new(),
-                Arc::new(IosFullParser::new()),
-                initial_filter,
-                poll_interval,
-                agent_options,
-            ),
-            UsageOptions::Android => run_noninteractive(
-                AndroidLogProvider::new(),
-                Arc::new(AndroidParser::new()),
-                initial_filter,
-                poll_interval,
-                agent_options,
-            ),
-            UsageOptions::AndroidEffect => run_noninteractive(
-                AndroidLogProvider::new(),
-                Arc::new(AndroidEffectParser::new()),
-                initial_filter,
-                poll_interval,
-                agent_options,
-            ),
+            UsageOptions::IosEffect => {
+                let device = default_device_identifier().map_err(io::Error::other)?;
+                let app = cli_options
+                    .ios_app
+                    .expect("non-interactive iOS mode requires --ios-app");
+                run_noninteractive(
+                    make_ios_provider(&device, app),
+                    Arc::new(IosEffectParser::new()),
+                    initial_filter,
+                    poll_interval,
+                    agent_options,
+                )
+            }
+            UsageOptions::AndroidEffect => {
+                let device = default_device_serial().map_err(io::Error::other)?;
+                run_noninteractive(
+                    AndroidLogProvider::new_for_device(device),
+                    Arc::new(AndroidEffectParser::new()),
+                    initial_filter,
+                    poll_interval,
+                    agent_options,
+                )
+            }
             UsageOptions::DyehPreview => {
                 if let Some(dir) = dirs::home_dir() {
                     let log_dir_path = dir.join("Library/Application Support/DouyinAR");
@@ -522,45 +706,16 @@ fn main() -> io::Result<()> {
 
     let initial_filter = cli_options.initial_filter;
 
-    let build_desc = |parser: Arc<dyn lazylog_framework::provider::LogParser>,
-                      option: UsageOptions|
-     -> AppDesc {
-        let mut desc = AppDesc::new(parser);
-        desc.initial_filter = initial_filter.clone();
-        desc.poll_interval = poll_interval;
-        desc.mode_name = get_mode_name(&option);
-        desc
-    };
-
     // Prepare provider and parser based on option (default to DYEH)
     let app_result = match usage_option {
-        UsageOptions::IosEffect => {
-            let provider = IosLogProvider::new();
-            let parser: Arc<dyn lazylog_framework::provider::LogParser> =
-                Arc::new(IosEffectParser::new());
-            let desc = build_desc(parser, UsageOptions::IosEffect);
-            start_with_desc(&mut terminal, provider, desc)
-        }
-        UsageOptions::IosFull => {
-            let provider = IosLogProvider::new();
-            let parser: Arc<dyn lazylog_framework::provider::LogParser> =
-                Arc::new(IosFullParser::new());
-            let desc = build_desc(parser, UsageOptions::IosFull);
-            start_with_desc(&mut terminal, provider, desc)
-        }
-        UsageOptions::Android => {
-            let provider = AndroidLogProvider::new();
-            let parser: Arc<dyn lazylog_framework::provider::LogParser> =
-                Arc::new(AndroidParser::new());
-            let desc = build_desc(parser, UsageOptions::Android);
-            start_with_desc(&mut terminal, provider, desc)
-        }
+        UsageOptions::IosEffect => run_interactive_ios(
+            &mut terminal,
+            cli_options.ios_app,
+            &initial_filter,
+            poll_interval,
+        ),
         UsageOptions::AndroidEffect => {
-            let provider = AndroidLogProvider::new();
-            let parser: Arc<dyn lazylog_framework::provider::LogParser> =
-                Arc::new(AndroidEffectParser::new());
-            let desc = build_desc(parser, UsageOptions::AndroidEffect);
-            start_with_desc(&mut terminal, provider, desc)
+            run_interactive_android(&mut terminal, &initial_filter, poll_interval)
         }
         UsageOptions::DyehPreview => {
             if let Some(dir) = dirs::home_dir() {
@@ -568,7 +723,13 @@ fn main() -> io::Result<()> {
                 let provider = DyehLogProvider::new(log_dir_path);
                 let parser: Arc<dyn lazylog_framework::provider::LogParser> =
                     Arc::new(DyehParser::new());
-                let desc = build_desc(parser, UsageOptions::DyehPreview);
+                let desc = build_app_desc(
+                    parser,
+                    &UsageOptions::DyehPreview,
+                    &initial_filter,
+                    poll_interval,
+                    None,
+                );
                 start_with_desc(&mut terminal, provider, desc)
             } else {
                 eprintln!("Error: Could not determine home directory");
@@ -581,7 +742,13 @@ fn main() -> io::Result<()> {
                 let provider = DyehLogProvider::new_editor(log_dir_path);
                 let parser: Arc<dyn lazylog_framework::provider::LogParser> =
                     Arc::new(DyehEditorParser::new());
-                let desc = build_desc(parser, UsageOptions::DyehEditor);
+                let desc = build_app_desc(
+                    parser,
+                    &UsageOptions::DyehEditor,
+                    &initial_filter,
+                    poll_interval,
+                    None,
+                );
                 start_with_desc(&mut terminal, provider, desc)
             } else {
                 eprintln!("Error: Could not determine home directory");
@@ -702,5 +869,61 @@ mod tests {
 
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
         assert!(error.to_string().contains("cannot be used together"));
+    }
+
+    #[test]
+    fn interactive_ios_mode_has_no_default_app() {
+        let options = CliOptions::from_args(&args(&["--ios"])).unwrap();
+
+        assert_eq!(options.ios_app, None);
+    }
+
+    #[test]
+    fn ios_app_selects_douyin() {
+        let options = CliOptions::from_args(&args(&["--ios", "--ios-app", "douyin"])).unwrap();
+
+        assert_eq!(options.ios_app, Some(IosApp::Douyin));
+        assert_eq!(
+            options.ios_app.unwrap().bundle_id(),
+            IosApp::DOUYIN_BUNDLE_ID
+        );
+    }
+
+    #[test]
+    fn agent_ios_mode_requires_an_explicit_app() {
+        let error = CliOptions::from_args(&args(&["--agent", "--ios"]))
+            .err()
+            .unwrap();
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(error.to_string().contains("--ios-app is required"));
+    }
+
+    #[test]
+    fn headless_ios_mode_requires_an_explicit_app() {
+        let error = CliOptions::from_args(&args(&["--headless", "--ios"]))
+            .err()
+            .unwrap();
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(error.to_string().contains("--ios-app is required"));
+    }
+
+    #[test]
+    fn ios_app_requires_an_ios_mode() {
+        let error = CliOptions::from_args(&args(&["--android", "--ios-app", "douyin"]))
+            .err()
+            .unwrap();
+
+        assert!(error.to_string().contains("requires --ios"));
+    }
+
+    #[test]
+    fn ios_app_rejects_unknown_alias() {
+        let error = CliOptions::from_args(&args(&["--ios", "--ios-app", "unknown"]))
+            .err()
+            .unwrap();
+
+        assert!(error.to_string().contains("expected effectcam or douyin"));
     }
 }

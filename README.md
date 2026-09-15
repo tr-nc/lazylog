@@ -66,17 +66,15 @@ cargo run -- --dyeh-preview
 # Use DYEH editor logs
 cargo run -- --dyeh-editor
 
-# Use iOS log provider
+# Choose an iOS device, then EffectCam or Douyin (EffectCam is initially highlighted)
 cargo run -- --ios
 
-# Use iOS log provider (effect mode)
-cargo run -- --ios-effect
+# Select the device interactively but skip the iOS App picker
+cargo run -- --ios --ios-app effectcam
+cargo run -- --ios --ios-app douyin
 
-# Use Android log provider
+# Choose an Android device and use its effect logs (there is no App picker)
 cargo run -- --android
-
-# Use Android log provider (effect mode)
-cargo run -- --android-effect
 
 # Apply filter on startup
 cargo run -- --filter "ERROR"
@@ -91,10 +89,10 @@ Use `--headless` to skip the TUI and stream logs directly to stdout.
 
 ```bash
 # Headless mode works with filters and all existing providers
-cargo run -- --headless --android-effect --filter "ERROR"
+cargo run -- --headless --android --filter "ERROR"
 
-# Stream iOS logs non-interactively
-cargo run -- --headless --ios
+# Stream iOS logs non-interactively (an explicit app is required)
+cargo run -- --headless --ios --ios-app effectcam
 ```
 
 Headless mode behavior:
@@ -103,6 +101,7 @@ Headless mode behavior:
 - Reuses the existing provider and parser for the selected mode
 - Applies startup filters from `--filter`
 - Prints each matching parsed item using its full `raw_content`
+- Requires `--ios-app effectcam|douyin` in iOS mode
 
 ### Agent mode
 
@@ -114,7 +113,7 @@ capture file while limiting the stdout preview to 500 lines and 64 KiB by defaul
 cargo run -- --agent --dyeh-preview --duration 30
 
 # Choose the capture path and preview limits
-cargo run -- --agent --android-effect --filter "ERROR" \
+cargo run -- --agent --android --filter "ERROR" \
   --capture-file ./android-errors.log \
   --preview-lines 200 \
   --preview-bytes 32768
@@ -127,6 +126,20 @@ Agent mode behavior:
 - Stops sending log items to stdout when either preview limit is reached, while capture continues
 - Stops and flushes cleanly on `Ctrl+C`, `SIGTERM`, or after `--duration`
 - Refuses to overwrite an existing `--capture-file`
+- Requires `--ios-app effectcam|douyin` in iOS mode; Agent mode never opens a picker
+
+### Connection status
+
+Interactive, headless, and Agent modes use the same connection labels. iOS distinguishes an
+unplugged USB cable, a disconnected device, an exited target App, and a failed capture connection.
+Android reports device disconnects and capture failures; because its current source is global
+`adb logcat`, it cannot reliably infer that one particular App exited.
+
+Interactive mobile sessions share the same device picker. The picker refreshes automatically and
+highlights its first device by default. Android proceeds directly from device selection to logs.
+iOS adds a second, iOS-only App picker. If an iOS target App exits, Lazylog returns to the App
+picker while retaining the selected device. If the selected iOS or Android device disconnects,
+Lazylog returns to the device picker. Pressing `q` in the log viewer or either picker exits Lazylog.
 
 The generated capture path is stored under the platform-local data directory in
 `lazylog/captures`. A complete capture means everything Lazylog observed during that invocation;
@@ -185,7 +198,7 @@ live providers do not necessarily include logs from before startup.
 ### Prerequisites
 
 - Rust toolchain 1.77+ ([install via rustup](https://rustup.rs))
-- **iOS support** (optional): Requires `idevicesyslog` - install via `brew install libimobiledevice` on macOS
+- **iOS support** (optional): Requires a current Xcode with `devicectl`
 - **Android support** (optional): Requires `adb` - install via `brew install android-platform-tools` on macOS
 
 ### Build and test

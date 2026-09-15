@@ -3,6 +3,7 @@ use ratatui::{
     widgets::{Paragraph, Widget},
 };
 use std::time::{Duration, Instant};
+use unicode_width::UnicodeWidthStr;
 
 pub struct DisplayEvent {
     pub text: String,
@@ -153,11 +154,11 @@ impl StatusBar {
         for (i, seg) in segments.iter().enumerate() {
             if i > 0 {
                 spans.push(Span::raw(sep));
-                total_len += sep.chars().count();
+                total_len += UnicodeWidthStr::width(sep);
             }
             let style = seg.style.to_style();
             spans.push(Span::styled(seg.text.as_str(), style));
-            total_len += seg.text.chars().count();
+            total_len += UnicodeWidthStr::width(seg.text.as_str());
         }
         (spans, total_len)
     }

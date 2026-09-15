@@ -32,7 +32,7 @@ brew upgrade lazylog
 
 Platform dependencies:
 
-- iOS modes require `idevicesyslog`
+- iOS mode requires a current Xcode with `devicectl`
 - Android modes require `adb`
 - DYEH modes read from the local DYEH log directories
 
@@ -45,9 +45,7 @@ Agent and headless modes support all current providers:
 - `--dyeh-preview`
 - `--dyeh-editor`
 - `--ios`
-- `--ios-effect`
 - `--android`
-- `--android-effect`
 
 ## Workflow
 
@@ -78,18 +76,38 @@ lazylog --agent --dyeh-editor --duration 30
 Debug Android effect logs with a startup filter:
 
 ```bash
-lazylog --agent --android-effect --filter "ERROR" --duration 30
+lazylog --agent --android --filter "ERROR" --duration 30
 ```
 
-Debug iOS logs non-interactively:
+Debug EffectCam iOS effect logs non-interactively:
 
 ```bash
-lazylog --agent --ios --duration 30
+lazylog --agent --ios --ios-app effectcam --duration 30
 ```
+
+Debug Douyin iOS effect logs:
+
+```bash
+lazylog --agent --ios --ios-app douyin --duration 30
+```
+
+Interactive mobile mode first opens the shared device picker, which refreshes automatically and
+highlights the first device. Android proceeds directly to logs and never opens an App picker. iOS
+then opens its own App picker when `--ios-app` is omitted. Agent and headless modes have no
+interaction: they select the preferred connected device automatically, and iOS must also pass
+either `--ios-app effectcam` or `--ios-app douyin`. Lazylog then terminates and relaunches that iOS
+App so its standard streams can be attached. Use it only on a development or test device:
+unredacted output can contain credentials and user data.
 
 ## Behavior
 
 - agent mode captures until interrupted or until `--duration` expires
+- interactive, headless, and agent modes report the same connection-state labels
+- iOS distinguishes USB removal, device disconnect, target App exit, and capture failure
+- interactive iOS App exit returns to the iOS-only App picker
+- interactive iOS/Android device disconnect returns to the shared device picker
+- Android distinguishes device disconnect from capture failure; global `adb logcat` does not
+  provide reliable target-App exit detection
 - the complete plain-text capture path is printed when the session starts
 - stdout preview defaults to 500 lines and 64 KiB
 - after either preview limit, capture continues without printing more log items to stdout

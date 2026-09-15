@@ -3,7 +3,9 @@ use crate::{
     filter::FilterEngine,
     log_list::LogList,
     log_parser::{LogDetailLevel, LogItem},
-    provider::{LogParser, LogProvider, spawn_provider_thread},
+    provider::{
+        LogParser, LogProvider, ProviderDisconnectReason, ProviderStatus, spawn_provider_thread,
+    },
     status_bar::DisplayEvent,
     theme,
     ui_logger::UiLogger,
@@ -54,6 +56,13 @@ pub struct AppDesc {
     pub mode_color: Option<Color>,
 }
 
+/// Why an interactive Lazylog session returned to its caller.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AppExitReason {
+    UserQuit,
+    ProviderDisconnected(ProviderDisconnectReason),
+}
+
 impl AppDesc {
     pub fn new(parser: Arc<dyn LogParser>) -> Self {
         Self {
@@ -90,19 +99,46 @@ pub fn start_with_desc<P>(
 where
     P: LogProvider + 'static,
 {
+    start_app(terminal, provider, desc, false).map(|_| ())
+}
+
+/// Start the application and return when either the user quits or the provider
+/// reports a disconnected state.
+pub fn start_with_desc_until_provider_disconnect<P>(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    provider: P,
+    desc: AppDesc,
+) -> Result<AppExitReason>
+where
+    P: LogProvider + 'static,
+{
+    start_app(terminal, provider, desc, true)
+}
+
+fn start_app<P>(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    provider: P,
+    desc: AppDesc,
+    exit_on_provider_disconnect: bool,
+) -> Result<AppExitReason>
+where
+    P: LogProvider + 'static,
+{
     color_eyre::install().or(Err(anyhow!("Error installing color_eyre")))?;
 
     let app = App::new(provider, desc.clone());
-    app.run(terminal, &desc)
+    app.run(terminal, &desc, exit_on_provider_disconnect)
 }
 
 struct App {
     is_exiting: bool,
+    exit_reason: AppExitReason,
     raw_logs: Vec<LogItem>,
     displaying_logs: LogList,
     log_consumer: ringbuf::HeapCons<LogItem>, // receives logs from provider thread
     provider_thread: Option<thread::JoinHandle<()>>,
     provider_stop_signal: Arc<AtomicBool>,
+    provider_status: Arc<Mutex<Option<ProviderStatus>>>,
     autoscroll: bool,
     filter_input: String, // Current filter input text (includes leading '/')
     filter_focused: bool, // Whether the filter input is focused
@@ -179,7 +215,7 @@ impl App {
 
         // spawn provider thread
         let poll_interval = desc.poll_interval;
-        let (provider_thread, provider_stop_signal) =
+        let (provider_thread, provider_stop_signal, provider_status) =
             spawn_provider_thread(provider, desc.parser.clone(), producer, poll_interval);
 
         // create blocks first so we can reference their IDs
@@ -212,11 +248,13 @@ impl App {
 
         Self {
             is_exiting: false,
+            exit_reason: AppExitReason::UserQuit,
             raw_logs: Vec::new(),
             displaying_logs: LogList::new(Vec::new()),
             log_consumer: consumer,
             provider_thread: Some(provider_thread),
             provider_stop_signal,
+            provider_status,
             autoscroll: true,
             filter_input: initial_filter_input,
             filter_focused: false,
@@ -264,7 +302,8 @@ impl App {
         mut self,
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
         desc: &AppDesc,
-    ) -> Result<()> {
+        exit_on_provider_disconnect: bool,
+    ) -> Result<AppExitReason> {
         let poll_interval = desc.poll_interval;
         let event_poll_interval = desc.event_poll_interval;
         let mut last_update_logs = Instant::now();
@@ -272,10 +311,18 @@ impl App {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<()> {
             while !self.is_exiting {
                 self.poll_event(event_poll_interval)?;
+                if self.is_exiting {
+                    continue;
+                }
 
                 if last_update_logs.elapsed() >= poll_interval {
                     self.update_logs()?;
                     last_update_logs = Instant::now();
+                }
+
+                self.exit_if_provider_disconnected(exit_on_provider_disconnect);
+                if self.is_exiting {
+                    continue;
                 }
 
                 self.check_and_clear_expired_event();
@@ -288,7 +335,8 @@ impl App {
         self.cleanup();
 
         match result {
-            Ok(r) => r,
+            Ok(Ok(())) => Ok(self.exit_reason),
+            Ok(Err(error)) => Err(error),
             Err(_) => {
                 eprintln!("Application panicked, terminal restored");
                 std::process::exit(1);
@@ -306,6 +354,24 @@ impl App {
             if let Err(e) = handle.join() {
                 log::error!("Provider thread panicked: {:?}", e);
             }
+        }
+    }
+
+    fn exit_if_provider_disconnected(&mut self, enabled: bool) {
+        if !enabled {
+            return;
+        }
+
+        let disconnect_reason = self.provider_status.lock().ok().and_then(|status| {
+            if let Some(ProviderStatus::Disconnected(reason)) = *status {
+                Some(reason)
+            } else {
+                None
+            }
+        });
+        if let Some(reason) = disconnect_reason {
+            self.exit_reason = AppExitReason::ProviderDisconnected(reason);
+            self.is_exiting = true;
         }
     }
 

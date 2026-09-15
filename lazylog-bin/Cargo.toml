@@ -11,6 +11,7 @@ name = "lazylog"
 path = "src/main.rs"
 
 [dependencies]
+anyhow.workspace = true
 lazylog-framework = { path = "../lazylog-framework" }
 lazylog-dyeh = { path = "../lazylog-dyeh" }
 lazylog-ios = { path = "../lazylog-ios" }

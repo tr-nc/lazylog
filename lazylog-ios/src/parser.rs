@@ -186,15 +186,13 @@ impl LogParser for IosEffectParser {
             return None;
         }
 
-        // try to strip iOS wrapper
-        if let Some(inner_content) = Self::strip_ios_wrapper(raw_log) {
-            // parse structured content using lazylog-parser
-            let log_items = process_delta(inner_content);
+        // idevicesyslog adds a `<Level>:` wrapper while devicectl app-console
+        // output does not. Both sources carry the same structured marker.
+        let inner_content = Self::strip_ios_wrapper(raw_log).unwrap_or(raw_log);
+        let log_items = process_delta(inner_content);
 
-            // return first parsed item if available
-            if let Some(item) = log_items.into_iter().next() {
-                return Some(item);
-            }
+        if let Some(item) = log_items.into_iter().next() {
+            return Some(item);
         }
 
         // if parsing failed, filter out
@@ -211,5 +209,25 @@ impl LogParser for IosEffectParser {
 
     fn max_detail_level(&self) -> LogDetailLevel {
         self.full_parser.max_detail_level()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn effect_parser_accepts_direct_app_console_output() {
+        let raw_log = "2026-09-15 16:01:14.700 EffectCam[2276:399113] \
+            ## 2026-09-15 16:01:14 [threadid:4651876352,ConsoleModule.cpp,100] \
+            ERROR ## [AE_JSRUNTIME_TAG]'direct console value'";
+
+        let item = IosEffectParser::new()
+            .parse(raw_log)
+            .expect("direct devicectl console output should be parsed");
+
+        assert_eq!(item.get_metadata("level"), Some("ERROR"));
+        assert_eq!(item.get_metadata("tag"), Some("AE_JSRUNTIME_TAG"));
+        assert_eq!(item.content, "'direct console value'");
     }
 }

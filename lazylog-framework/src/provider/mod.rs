@@ -37,12 +37,53 @@ use anyhow::Result;
 use ringbuf::traits::Producer;
 use std::{
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
     thread,
     time::Duration,
 };
+
+/// High-level connection state shared by all providers that can report one.
+///
+/// Platform adapters own the evidence needed to choose a disconnect reason;
+/// callers only need this stable, platform-neutral state model.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProviderStatus {
+    Connecting,
+    Connected,
+    Disconnected(ProviderDisconnectReason),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProviderDisconnectReason {
+    UsbDisconnected,
+    DeviceDisconnected,
+    TargetExited,
+    CaptureFailed,
+    Unknown,
+}
+
+impl ProviderStatus {
+    /// Stable user-facing label shared by interactive and non-interactive modes.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Connecting => "连接中",
+            Self::Connected => "已连接",
+            Self::Disconnected(reason) => match reason {
+                ProviderDisconnectReason::UsbDisconnected => "USB 已拔出",
+                ProviderDisconnectReason::DeviceDisconnected => "设备已断开",
+                ProviderDisconnectReason::TargetExited => "App 已退出",
+                ProviderDisconnectReason::CaptureFailed => "采集连接异常",
+                ProviderDisconnectReason::Unknown => "连接已断开",
+            },
+        }
+    }
+
+    pub const fn is_disconnected(self) -> bool {
+        matches!(self, Self::Disconnected(_))
+    }
+}
 
 /// Trait for acquiring raw log data from any source.
 ///
@@ -178,6 +219,15 @@ pub trait LogProvider: Send {
     /// }
     /// ```
     fn poll_logs(&mut self) -> Result<Vec<String>>;
+
+    /// Return the provider's current connection state, if it has one.
+    ///
+    /// Providers without a meaningful live connection can use the default.
+    /// The call must be non-blocking; platform probing belongs inside the
+    /// provider implementation, not in the UI thread.
+    fn status(&self) -> Option<ProviderStatus> {
+        None
+    }
 }
 
 /// Spawns a background thread that runs a provider and feeds logs into a ring buffer.
@@ -199,6 +249,7 @@ pub trait LogProvider: Send {
 ///
 /// - `JoinHandle`: Thread handle to join on shutdown
 /// - `Arc<AtomicBool>`: Stop signal to gracefully terminate the thread
+/// - Shared current provider status for UI rendering
 ///
 /// # Lifecycle
 ///
@@ -241,7 +292,7 @@ pub trait LogProvider: Send {
 /// let ring_buffer = HeapRb::<LogItem>::new(1024);
 /// let (producer, consumer) = ring_buffer.split();
 ///
-/// let (handle, stop_signal) = spawn_provider_thread(
+/// let (handle, stop_signal, _provider_status) = spawn_provider_thread(
 ///     provider,
 ///     parser,
 ///     producer,
@@ -257,20 +308,33 @@ pub fn spawn_provider_thread<P>(
     parser: Arc<dyn LogParser>,
     mut producer: impl Producer<Item = LogItem> + Send + 'static,
     poll_interval: Duration,
-) -> (thread::JoinHandle<()>, Arc<AtomicBool>)
+) -> (
+    thread::JoinHandle<()>,
+    Arc<AtomicBool>,
+    Arc<Mutex<Option<ProviderStatus>>>,
+)
 where
     P: LogProvider + 'static,
 {
     let should_stop = Arc::new(AtomicBool::new(false));
     let should_stop_clone = should_stop.clone();
+    let provider_status = Arc::new(Mutex::new(provider.status()));
+    let provider_status_clone = provider_status.clone();
 
     let handle = thread::spawn(move || {
         if let Err(e) = provider.start() {
             log::error!("Failed to start log provider: {}", e);
+            publish_provider_status(
+                &provider_status_clone,
+                Some(ProviderStatus::Disconnected(
+                    ProviderDisconnectReason::CaptureFailed,
+                )),
+            );
             return;
         }
 
         log::debug!("Provider thread started");
+        publish_provider_status(&provider_status_clone, provider.status());
 
         while !should_stop_clone.load(Ordering::Relaxed) {
             match provider.poll_logs() {
@@ -289,6 +353,8 @@ where
                 }
             }
 
+            publish_provider_status(&provider_status_clone, provider.status());
+
             sleep_interruptible(poll_interval, &should_stop_clone);
         }
 
@@ -299,7 +365,18 @@ where
         log::debug!("Provider thread stopped");
     });
 
-    (handle, should_stop)
+    (handle, should_stop, provider_status)
+}
+
+fn publish_provider_status(
+    shared: &Arc<Mutex<Option<ProviderStatus>>>,
+    status: Option<ProviderStatus>,
+) {
+    if let Ok(mut current) = shared.lock()
+        && *current != status
+    {
+        *current = status;
+    }
 }
 
 fn sleep_interruptible(duration: Duration, should_stop: &AtomicBool) {
@@ -319,5 +396,101 @@ fn sleep_interruptible(duration: Duration, should_stop: &AtomicBool) {
         let sleep_time = check_interval.min(duration - elapsed);
         thread::sleep(sleep_time);
         elapsed += sleep_time;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ringbuf::{HeapRb, traits::Split};
+    use std::time::Instant;
+
+    struct NullParser;
+
+    impl LogParser for NullParser {
+        fn parse(&self, _raw_log: &str) -> Option<LogItem> {
+            None
+        }
+
+        fn format_preview(&self, _item: &LogItem, _detail_level: LogDetailLevel) -> String {
+            String::new()
+        }
+
+        fn get_searchable_text(&self, _item: &LogItem, _detail_level: LogDetailLevel) -> String {
+            String::new()
+        }
+    }
+
+    struct StatusProvider {
+        status: ProviderStatus,
+    }
+
+    impl LogProvider for StatusProvider {
+        fn start(&mut self) -> Result<()> {
+            self.status = ProviderStatus::Connected;
+            Ok(())
+        }
+
+        fn stop(&mut self) -> Result<()> {
+            Ok(())
+        }
+
+        fn poll_logs(&mut self) -> Result<Vec<String>> {
+            self.status = ProviderStatus::Disconnected(ProviderDisconnectReason::TargetExited);
+            Ok(Vec::new())
+        }
+
+        fn status(&self) -> Option<ProviderStatus> {
+            Some(self.status)
+        }
+    }
+
+    #[test]
+    fn status_labels_are_shared_across_frontends() {
+        assert_eq!(ProviderStatus::Connecting.label(), "连接中");
+        assert_eq!(ProviderStatus::Connected.label(), "已连接");
+        assert_eq!(
+            ProviderStatus::Disconnected(ProviderDisconnectReason::UsbDisconnected).label(),
+            "USB 已拔出"
+        );
+        assert_eq!(
+            ProviderStatus::Disconnected(ProviderDisconnectReason::TargetExited).label(),
+            "App 已退出"
+        );
+    }
+
+    #[test]
+    fn provider_thread_publishes_terminal_status() {
+        let provider = StatusProvider {
+            status: ProviderStatus::Connecting,
+        };
+        let ring_buffer = HeapRb::<LogItem>::new(4);
+        let (producer, _consumer) = ring_buffer.split();
+        let (handle, stop, status) = spawn_provider_thread(
+            provider,
+            Arc::new(NullParser),
+            producer,
+            Duration::from_millis(1),
+        );
+
+        let deadline = Instant::now() + Duration::from_millis(500);
+        loop {
+            let current = status.lock().ok().and_then(|status| *status);
+            if current
+                == Some(ProviderStatus::Disconnected(
+                    ProviderDisconnectReason::TargetExited,
+                ))
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "provider status was not published"
+            );
+            thread::sleep(Duration::from_millis(1));
+        }
+
+        stop.store(true, Ordering::Relaxed);
+        handle.join().unwrap();
     }
 }
