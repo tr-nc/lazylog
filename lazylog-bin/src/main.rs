@@ -5,14 +5,10 @@ use agent::{AgentOptions, run_agent};
 use crossterm::event;
 use lazylog_android::{AndroidEffectParser, AndroidLogProvider, default_device_serial};
 use lazylog_dyeh::{DyehEditorParser, DyehLogProvider, DyehParser};
-use lazylog_framework::provider::{
-    LogItem, LogParser, LogProvider, ProviderDisconnectReason, ProviderStatus,
-};
-use lazylog_framework::{
-    AppDesc, AppExitReason, start_with_desc, start_with_desc_until_provider_disconnect,
-};
+use lazylog_framework::provider::{LogItem, LogParser, LogProvider, ProviderStatus};
+use lazylog_framework::{AppDesc, AppExitReason, start_with_desc_until_provider_disconnect};
 use lazylog_ios::{IosEffectParser, IosLogProvider, default_device_identifier};
-use mobile_picker::IosApp;
+use mobile_picker::{IosApp, PickerSelection, PickerState, ProviderKind};
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
@@ -37,13 +33,14 @@ use std::time::Duration;
 
 fn print_usage() {
     eprintln!("Usage: lazylog [OPTIONS]");
+    eprintln!("Without a provider option, the TUI opens the Provider picker.");
     eprintln!();
     eprintln!("Options:");
-    eprintln!("  --dyeh-preview, -dyp    Use DYEH file-based log provider");
-    eprintln!("  --dyeh-editor, -dye     Use DYEH editor log provider");
-    eprintln!("  --ios, -i               Use iOS app-console provider [EFFECT MODE]");
+    eprintln!("  --dyeh-preview          Use DYEH file-based log provider");
+    eprintln!("  --dyeh-editor           Use DYEH editor log provider");
+    eprintln!("  --ios                   Use iOS app-console provider [EFFECT MODE]");
     eprintln!("  --ios-app <APP>         iOS app: effectcam or douyin");
-    eprintln!("  --android, -a           Use Android log provider [EFFECT MODE]");
+    eprintln!("  --android               Use Android log provider [EFFECT MODE]");
     eprintln!("  --headless              Stream logs to stdout without the TUI");
     eprintln!("  --agent                 Capture complete logs with bounded stdout preview");
     eprintln!("  --capture-file <PATH>   Agent capture path (must not already exist)");
@@ -86,7 +83,7 @@ fn check_adb_available() -> io::Result<()> {
             io::ErrorKind::NotFound,
             "Error: 'adb' not found in PATH.\n\
                  \n\
-                 To use Android log provider (-a or --android), you need to install Android SDK Platform-Tools.\n\
+                 To use Android log provider (--android), you need to install Android SDK Platform-Tools.\n\
                  \n\
                  Installation instructions:\n\
                  - macOS: brew install android-platform-tools\n\
@@ -100,7 +97,7 @@ fn check_adb_available() -> io::Result<()> {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum UsageOptions {
     DyehPreview,
     DyehEditor,
@@ -108,18 +105,25 @@ enum UsageOptions {
     AndroidEffect,
     Help,
     Version,
-    None, // when no args provided, show help
+    None, // no explicit provider: open the interactive Provider picker
+}
+
+impl UsageOptions {
+    fn provider(self) -> Option<ProviderKind> {
+        match self {
+            Self::IosEffect => Some(ProviderKind::Ios),
+            Self::AndroidEffect => Some(ProviderKind::Android),
+            Self::DyehPreview => Some(ProviderKind::DyehPreview),
+            Self::DyehEditor => Some(ProviderKind::DyehEditor),
+            Self::Help | Self::Version | Self::None => None,
+        }
+    }
 }
 
 fn get_mode_name(option: &UsageOptions) -> Option<String> {
-    use UsageOptions::*;
-    match option {
-        DyehPreview => Some("dyeh preview".to_string()),
-        DyehEditor => Some("dyeh editor".to_string()),
-        IosEffect => Some("ios".to_string()),
-        AndroidEffect => Some("android".to_string()),
-        Help | Version | None => Option::None,
-    }
+    option
+        .provider()
+        .map(|provider| provider.mode_name().to_string())
 }
 
 fn set_provider_option(
@@ -199,20 +203,18 @@ impl CliOptions {
         let mut i = 0;
         while i < args.len() {
             match args[i].as_str() {
-                "--ios" | "-i" => set_provider_option(&mut usage_option, UsageOptions::IosEffect)?,
+                "--ios" => set_provider_option(&mut usage_option, UsageOptions::IosEffect)?,
                 "--ios-app" => {
                     let value = take_option_value(args, &mut i, "--ios-app")?;
                     if ios_app.replace(IosApp::parse(value)?).is_some() {
                         return Err(duplicate_option("--ios-app"));
                     }
                 }
-                "--android" | "-a" => {
-                    set_provider_option(&mut usage_option, UsageOptions::AndroidEffect)?
-                }
-                "--dyeh-preview" | "-dyp" => {
+                "--android" => set_provider_option(&mut usage_option, UsageOptions::AndroidEffect)?,
+                "--dyeh-preview" => {
                     set_provider_option(&mut usage_option, UsageOptions::DyehPreview)?
                 }
-                "--dyeh-editor" | "-dye" => {
+                "--dyeh-editor" => {
                     set_provider_option(&mut usage_option, UsageOptions::DyehEditor)?
                 }
                 "--version" | "-v" => {
@@ -309,6 +311,14 @@ impl CliOptions {
                 ));
             }
 
+            if (headless || agent_requested) && matches!(usage_option, UsageOptions::None) {
+                print_usage();
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "--headless and --agent require an explicit provider option",
+                ));
+            }
+
             if matches!(usage_option, UsageOptions::IosEffect)
                 && (headless || agent_requested)
                 && ios_app.is_none()
@@ -373,73 +383,116 @@ fn build_app_desc(
     desc
 }
 
-fn run_interactive_ios(
+fn run_interactive_session(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    requested_app: Option<IosApp>,
+    selection: &PickerSelection,
     initial_filter: &Option<String>,
     poll_interval: Duration,
-) -> anyhow::Result<()> {
-    let mut retained_device = None;
-    let mut requested_app = requested_app;
-
-    loop {
-        let Some(selection) =
-            mobile_picker::pick_ios(terminal, retained_device.take(), requested_app.take())?
-        else {
-            return Ok(());
-        };
-        let device = selection.device;
-        let app = selection.app;
-        let parser: Arc<dyn LogParser> = Arc::new(IosEffectParser::new());
-        let desc = build_app_desc(
-            parser,
-            &UsageOptions::IosEffect,
-            initial_filter,
-            poll_interval,
-            Some(app),
-        );
-        let exit_reason = start_with_desc_until_provider_disconnect(
-            terminal,
-            make_ios_provider(&device, app),
-            desc,
-        )?;
-
-        match exit_reason {
-            AppExitReason::UserQuit => return Ok(()),
-            AppExitReason::UserBack => retained_device = Some(device),
-            AppExitReason::ProviderDisconnected(ProviderDisconnectReason::TargetExited) => {
-                retained_device = Some(device);
-            }
-            AppExitReason::ProviderDisconnected(_) => {}
+) -> anyhow::Result<AppExitReason> {
+    match selection {
+        PickerSelection::Ios(selection) => {
+            check_devicectl_available()?;
+            let parser: Arc<dyn LogParser> = Arc::new(IosEffectParser::new());
+            let desc = build_app_desc(
+                parser,
+                &UsageOptions::IosEffect,
+                initial_filter,
+                poll_interval,
+                Some(selection.app),
+            );
+            start_with_desc_until_provider_disconnect(
+                terminal,
+                make_ios_provider(&selection.device, selection.app),
+                desc,
+            )
+        }
+        PickerSelection::Android { device } => {
+            check_adb_available()?;
+            let parser: Arc<dyn LogParser> = Arc::new(AndroidEffectParser::new());
+            let desc = build_app_desc(
+                parser,
+                &UsageOptions::AndroidEffect,
+                initial_filter,
+                poll_interval,
+                None,
+            );
+            start_with_desc_until_provider_disconnect(
+                terminal,
+                AndroidLogProvider::new_for_device(device.clone()),
+                desc,
+            )
+        }
+        PickerSelection::DyehPreview => {
+            let log_dir_path = dirs::home_dir()
+                .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?
+                .join("Library/Application Support/DouyinAR");
+            let parser: Arc<dyn LogParser> = Arc::new(DyehParser::new());
+            let desc = build_app_desc(
+                parser,
+                &UsageOptions::DyehPreview,
+                initial_filter,
+                poll_interval,
+                None,
+            );
+            start_with_desc_until_provider_disconnect(
+                terminal,
+                DyehLogProvider::new(log_dir_path),
+                desc,
+            )
+        }
+        PickerSelection::DyehEditor => {
+            let log_dir_path = dirs::home_dir()
+                .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?
+                .join("Library/Application Support/DouyinAR");
+            let parser: Arc<dyn LogParser> = Arc::new(DyehEditorParser::new());
+            let desc = build_app_desc(
+                parser,
+                &UsageOptions::DyehEditor,
+                initial_filter,
+                poll_interval,
+                None,
+            );
+            start_with_desc_until_provider_disconnect(
+                terminal,
+                DyehLogProvider::new_editor(log_dir_path),
+                desc,
+            )
         }
     }
 }
 
-fn run_interactive_android(
+fn initial_selection(provider: Option<ProviderKind>) -> Option<PickerSelection> {
+    match provider {
+        Some(ProviderKind::DyehPreview) => Some(PickerSelection::DyehPreview),
+        Some(ProviderKind::DyehEditor) => Some(PickerSelection::DyehEditor),
+        Some(ProviderKind::Ios | ProviderKind::Android) | None => None,
+    }
+}
+
+fn run_interactive(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    requested_provider: Option<ProviderKind>,
+    requested_app: Option<IosApp>,
     initial_filter: &Option<String>,
     poll_interval: Duration,
 ) -> anyhow::Result<()> {
+    let mut picker = PickerState::new(requested_provider, requested_app);
+    let mut pending_selection = initial_selection(requested_provider);
+
     loop {
-        let Some(device) = mobile_picker::pick_android(terminal)? else {
-            return Ok(());
+        let selection = if let Some(selection) = pending_selection.take() {
+            selection
+        } else {
+            let Some(selection) = mobile_picker::pick(terminal, &mut picker)? else {
+                return Ok(());
+            };
+            selection
         };
-        let parser: Arc<dyn LogParser> = Arc::new(AndroidEffectParser::new());
-        let desc = build_app_desc(
-            parser,
-            &UsageOptions::AndroidEffect,
-            initial_filter,
-            poll_interval,
-            None,
-        );
-        match start_with_desc_until_provider_disconnect(
-            terminal,
-            AndroidLogProvider::new_for_device(device),
-            desc,
-        )? {
-            AppExitReason::UserQuit => return Ok(()),
-            AppExitReason::UserBack => {}
-            AppExitReason::ProviderDisconnected(_) => {}
+
+        match run_interactive_session(terminal, &selection, initial_filter, poll_interval) {
+            Ok(AppExitReason::UserQuit) => return Ok(()),
+            Ok(AppExitReason::UserBack | AppExitReason::ProviderDisconnected(_)) => {}
+            Err(error) => picker.set_message(format!("启动失败：{error}")),
         }
     }
 }
@@ -547,29 +600,20 @@ fn main() -> io::Result<()> {
         return Ok(());
     }
 
-    if matches!(usage_option, UsageOptions::Help | UsageOptions::None) {
+    if matches!(usage_option, UsageOptions::Help) {
         print_usage();
         return Ok(());
     }
 
     let poll_interval = Duration::from_millis(20);
-    // iOS modes always use Apple's app-console source.
-    if matches!(usage_option, UsageOptions::IosEffect)
-        && let Err(e) = check_devicectl_available()
-    {
-        eprintln!("{}", e);
-        std::process::exit(1);
-    }
-
-    // check if adb is available for Android option
-    if matches!(usage_option, UsageOptions::AndroidEffect)
-        && let Err(e) = check_adb_available()
-    {
-        eprintln!("{}", e);
-        std::process::exit(1);
-    }
 
     if cli_options.headless || cli_options.agent.is_some() {
+        if matches!(usage_option, UsageOptions::IosEffect) {
+            check_devicectl_available()?;
+        }
+        if matches!(usage_option, UsageOptions::AndroidEffect) {
+            check_adb_available()?;
+        }
         let initial_filter = cli_options.initial_filter.as_deref();
         let agent_options = cli_options.agent.as_ref();
         return match usage_option {
@@ -645,57 +689,13 @@ fn main() -> io::Result<()> {
 
     let initial_filter = cli_options.initial_filter;
 
-    // Prepare provider and parser based on option (default to DYEH)
-    let app_result = match usage_option {
-        UsageOptions::IosEffect => run_interactive_ios(
-            &mut terminal,
-            cli_options.ios_app,
-            &initial_filter,
-            poll_interval,
-        ),
-        UsageOptions::AndroidEffect => {
-            run_interactive_android(&mut terminal, &initial_filter, poll_interval)
-        }
-        UsageOptions::DyehPreview => {
-            if let Some(dir) = dirs::home_dir() {
-                let log_dir_path = dir.join("Library/Application Support/DouyinAR");
-                let provider = DyehLogProvider::new(log_dir_path);
-                let parser: Arc<dyn lazylog_framework::provider::LogParser> =
-                    Arc::new(DyehParser::new());
-                let desc = build_app_desc(
-                    parser,
-                    &UsageOptions::DyehPreview,
-                    &initial_filter,
-                    poll_interval,
-                    None,
-                );
-                start_with_desc(&mut terminal, provider, desc)
-            } else {
-                eprintln!("Error: Could not determine home directory");
-                Ok(())
-            }
-        }
-        UsageOptions::DyehEditor => {
-            if let Some(dir) = dirs::home_dir() {
-                let log_dir_path = dir.join("Library/Application Support/DouyinAR");
-                let provider = DyehLogProvider::new_editor(log_dir_path);
-                let parser: Arc<dyn lazylog_framework::provider::LogParser> =
-                    Arc::new(DyehEditorParser::new());
-                let desc = build_app_desc(
-                    parser,
-                    &UsageOptions::DyehEditor,
-                    &initial_filter,
-                    poll_interval,
-                    None,
-                );
-                start_with_desc(&mut terminal, provider, desc)
-            } else {
-                eprintln!("Error: Could not determine home directory");
-                Ok(())
-            }
-        }
-        UsageOptions::Help | UsageOptions::None | UsageOptions::Version => unreachable!(),
-    };
+    let app_result = run_interactive(
+        &mut terminal,
+        usage_option.provider(),
+        cli_options.ios_app,
+        &initial_filter,
+        poll_interval,
+    );
 
     // Always restore terminal before printing or exiting
     restore_terminal()?;
@@ -808,6 +808,53 @@ mod tests {
 
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
         assert!(error.to_string().contains("cannot be used together"));
+    }
+
+    #[test]
+    fn no_arguments_open_the_interactive_provider_picker() {
+        let options = CliOptions::from_args(&args(&[])).unwrap();
+
+        assert_eq!(options.usage_option, UsageOptions::None);
+        assert!(!options.headless);
+        assert!(options.agent.is_none());
+    }
+
+    #[test]
+    fn noninteractive_modes_require_an_explicit_provider() {
+        for mode in ["--agent", "--headless"] {
+            let error = CliOptions::from_args(&args(&[mode])).err().unwrap();
+            assert!(error.to_string().contains("explicit provider"));
+        }
+    }
+
+    #[test]
+    fn provider_short_options_are_not_accepted() {
+        for option in [
+            "-i",
+            "-ie",
+            "-a",
+            "-ae",
+            "-dyp",
+            "-dye",
+            "--ios-effect",
+            "--android-effect",
+        ] {
+            let error = CliOptions::from_args(&args(&[option])).err().unwrap();
+            assert!(error.to_string().contains("Unknown option"));
+        }
+    }
+
+    #[test]
+    fn long_provider_options_map_to_picker_providers() {
+        for (option, provider) in [
+            ("--ios", ProviderKind::Ios),
+            ("--android", ProviderKind::Android),
+            ("--dyeh-preview", ProviderKind::DyehPreview),
+            ("--dyeh-editor", ProviderKind::DyehEditor),
+        ] {
+            let options = CliOptions::from_args(&args(&[option])).unwrap();
+            assert_eq!(options.usage_option.provider(), Some(provider));
+        }
     }
 
     #[test]

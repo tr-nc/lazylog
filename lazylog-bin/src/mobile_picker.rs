@@ -2,7 +2,10 @@ use crossterm::event::{
     self, Event, KeyCode, KeyEventKind, MouseButton, MouseEvent, MouseEventKind,
 };
 use lazylog_android::connected_devices as connected_android_devices;
-use lazylog_framework::SELECTED_STYLE;
+use lazylog_framework::{
+    Panel, SELECTED_STYLE, get_mode_color,
+    status_bar::{StatusBar, StatusGravity, StatusStyle},
+};
 use lazylog_ios::{
     IosAppAvailability, app_availabilities, connected_devices as connected_ios_devices,
 };
@@ -11,8 +14,8 @@ use ratatui::{
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
-    text::Line,
-    widgets::{List, ListItem, ListState, Paragraph},
+    text::{Line, Span},
+    widgets::{Clear, List, ListItem, ListState, Padding, Paragraph},
 };
 use std::io;
 use std::sync::{
@@ -25,6 +28,12 @@ use std::time::Duration;
 use unicode_width::UnicodeWidthStr;
 
 const APPS: [IosApp; 2] = [IosApp::EffectCam, IosApp::Douyin];
+const PROVIDERS: [ProviderKind; 4] = [
+    ProviderKind::Ios,
+    ProviderKind::Android,
+    ProviderKind::DyehPreview,
+    ProviderKind::DyehEditor,
+];
 const REFRESH_INTERVAL: Duration = Duration::from_secs(1);
 const EVENT_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const CONTENT_INDENT: &str = "  ";
@@ -73,6 +82,50 @@ pub(crate) struct IosSelection {
     pub(crate) app: IosApp,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ProviderKind {
+    Ios,
+    Android,
+    DyehPreview,
+    DyehEditor,
+}
+
+impl ProviderKind {
+    pub(crate) fn display_name(self) -> &'static str {
+        match self {
+            Self::Ios => "iOS",
+            Self::Android => "Android",
+            Self::DyehPreview => "DYEH 预览",
+            Self::DyehEditor => "DYEH 编辑器",
+        }
+    }
+
+    pub(crate) fn mode_name(self) -> &'static str {
+        match self {
+            Self::Ios => "ios",
+            Self::Android => "android",
+            Self::DyehPreview => "dyeh preview",
+            Self::DyehEditor => "dyeh editor",
+        }
+    }
+
+    fn platform(self) -> Option<PickerPlatform> {
+        match self {
+            Self::Ios => Some(PickerPlatform::Ios),
+            Self::Android => Some(PickerPlatform::Android),
+            Self::DyehPreview | Self::DyehEditor => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PickerSelection {
+    Ios(IosSelection),
+    Android { device: String },
+    DyehPreview,
+    DyehEditor,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct DeviceOption {
     id: String,
@@ -97,6 +150,7 @@ impl PickerPlatform {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TabKind {
+    Provider,
     Device,
     App,
 }
@@ -104,6 +158,7 @@ enum TabKind {
 impl TabKind {
     fn title(self) -> &'static str {
         match self {
+            Self::Provider => "Provider",
             Self::Device => "设备",
             Self::App => "APP",
         }
@@ -151,13 +206,13 @@ struct VisibleAreas {
 #[derive(Debug, PartialEq, Eq)]
 enum PickerAction {
     Continue,
-    CompleteDevice(String),
-    CompleteIos(IosSelection),
+    Complete(PickerSelection),
     Cancel,
 }
 
-struct PickerState {
-    platform: PickerPlatform,
+pub(crate) struct PickerState {
+    selected_provider: Option<ProviderKind>,
+    highlighted_provider: usize,
     tabs: Vec<TabKind>,
     active_tab: usize,
     devices: Vec<DeviceOption>,
@@ -169,45 +224,62 @@ struct PickerState {
     app_availability: Option<[DisplayAvailability; APPS.len()]>,
     discovery_error: Option<String>,
     has_discovered: bool,
+    message: Option<String>,
 }
 
 impl PickerState {
-    fn ios(retained_device: Option<String>, requested_app: Option<IosApp>) -> Self {
-        let active_tab = usize::from(retained_device.is_some());
+    pub(crate) fn new(
+        requested_provider: Option<ProviderKind>,
+        requested_app: Option<IosApp>,
+    ) -> Self {
+        let tabs = requested_provider
+            .map(Self::tabs_for)
+            .unwrap_or_else(|| vec![TabKind::Provider]);
+        let active_tab =
+            usize::from(requested_provider.is_some_and(|provider| provider.platform().is_some()));
         let highlighted_app = requested_app
             .and_then(|requested| APPS.iter().position(|app| *app == requested))
             .unwrap_or(0);
         Self {
-            platform: PickerPlatform::Ios,
-            tabs: vec![TabKind::Device, TabKind::App],
+            selected_provider: requested_provider,
+            highlighted_provider: requested_provider
+                .and_then(|requested| PROVIDERS.iter().position(|provider| *provider == requested))
+                .unwrap_or(0),
+            tabs,
             active_tab,
             devices: Vec::new(),
             highlighted_device: None,
-            selected_device: retained_device,
+            selected_device: None,
             highlighted_app,
-            selected_app: requested_app,
+            selected_app: None,
             requested_app,
             app_availability: None,
             discovery_error: None,
             has_discovered: false,
+            message: None,
         }
     }
 
-    fn android() -> Self {
-        Self {
-            platform: PickerPlatform::Android,
-            tabs: vec![TabKind::Device],
-            active_tab: 0,
-            devices: Vec::new(),
-            highlighted_device: None,
-            selected_device: None,
-            highlighted_app: 0,
-            selected_app: None,
-            requested_app: None,
-            app_availability: None,
-            discovery_error: None,
-            has_discovered: false,
+    fn tabs_for(provider: ProviderKind) -> Vec<TabKind> {
+        match provider {
+            ProviderKind::Ios => vec![TabKind::Provider, TabKind::Device, TabKind::App],
+            ProviderKind::Android => vec![TabKind::Provider, TabKind::Device],
+            ProviderKind::DyehPreview | ProviderKind::DyehEditor => vec![TabKind::Provider],
         }
+    }
+
+    pub(crate) fn set_message(&mut self, message: impl Into<String>) {
+        self.message = Some(message.into());
+    }
+
+    fn selected_platform(&self) -> Option<PickerPlatform> {
+        self.selected_provider.and_then(ProviderKind::platform)
+    }
+
+    fn selected_ios_device(&self) -> Option<String> {
+        matches!(self.selected_provider, Some(ProviderKind::Ios))
+            .then(|| self.selected_device.clone())
+            .flatten()
     }
 
     fn active_tab(&self) -> TabKind {
@@ -235,7 +307,7 @@ impl PickerState {
                 if selected_was_lost {
                     self.selected_device = None;
                     self.invalidate_after_device();
-                    self.active_tab = 0;
+                    self.active_tab = self.tab_index(TabKind::Device).unwrap_or(0);
                 }
                 selected_was_lost
             }
@@ -251,6 +323,43 @@ impl PickerState {
         self.app_availability = None;
     }
 
+    fn invalidate_after_provider(&mut self) {
+        self.devices.clear();
+        self.highlighted_device = None;
+        self.selected_device = None;
+        self.requested_app = None;
+        self.invalidate_after_device();
+        self.discovery_error = None;
+        self.has_discovered = false;
+    }
+
+    fn tab_index(&self, tab: TabKind) -> Option<usize> {
+        self.tabs.iter().position(|candidate| *candidate == tab)
+    }
+
+    fn commit_provider(&mut self, provider: ProviderKind) -> PickerAction {
+        if self.selected_provider != Some(provider) {
+            self.selected_provider = Some(provider);
+            self.invalidate_after_provider();
+            self.tabs = Self::tabs_for(provider);
+        }
+
+        match provider {
+            ProviderKind::Ios | ProviderKind::Android => {
+                self.active_tab = self
+                    .tab_index(TabKind::Device)
+                    .expect("mobile provider must include a device tab");
+                PickerAction::Continue
+            }
+            ProviderKind::DyehPreview => PickerAction::Complete(PickerSelection::DyehPreview),
+            ProviderKind::DyehEditor => PickerAction::Complete(PickerSelection::DyehEditor),
+        }
+    }
+
+    fn commit_highlighted_provider(&mut self) -> PickerAction {
+        self.commit_provider(PROVIDERS[self.highlighted_provider])
+    }
+
     fn commit_device(&mut self, id: String) -> PickerAction {
         let device_changed = self.selected_device.as_deref() != Some(id.as_str());
         if device_changed {
@@ -258,21 +367,22 @@ impl PickerState {
             self.invalidate_after_device();
         }
 
-        match self.platform {
-            PickerPlatform::Android => PickerAction::CompleteDevice(id),
-            PickerPlatform::Ios => {
-                if let Some(app) = self.requested_app {
+        match self.selected_provider {
+            Some(ProviderKind::Android) => {
+                PickerAction::Complete(PickerSelection::Android { device: id })
+            }
+            Some(ProviderKind::Ios) => {
+                if let Some(app) = self.requested_app.take() {
                     self.selected_app = Some(app);
-                    PickerAction::CompleteIos(IosSelection { device: id, app })
+                    PickerAction::Complete(PickerSelection::Ios(IosSelection { device: id, app }))
                 } else {
                     self.active_tab = self
-                        .tabs
-                        .iter()
-                        .position(|tab| *tab == TabKind::App)
+                        .tab_index(TabKind::App)
                         .expect("iOS picker must include an APP tab");
                     PickerAction::Continue
                 }
             }
+            _ => PickerAction::Continue,
         }
     }
 
@@ -302,7 +412,7 @@ impl PickerState {
             return PickerAction::Continue;
         }
         self.selected_app = Some(app);
-        PickerAction::CompleteIos(IosSelection { device, app })
+        PickerAction::Complete(PickerSelection::Ios(IosSelection { device, app }))
     }
 
     fn move_tab(&mut self, delta: isize) {
@@ -311,6 +421,10 @@ impl PickerState {
 
     fn move_highlight(&mut self, delta: isize) {
         match self.active_tab() {
+            TabKind::Provider => {
+                self.highlighted_provider =
+                    move_index(self.highlighted_provider, PROVIDERS.len(), delta);
+            }
             TabKind::Device => {
                 if self.devices.is_empty() {
                     self.highlighted_device = None;
@@ -329,6 +443,19 @@ impl PickerState {
     }
 
     fn handle_event(&mut self, event: Event, visible: &VisibleAreas) -> PickerAction {
+        if matches!(
+            &event,
+            Event::Key(key) if key.kind == KeyEventKind::Press
+        ) || matches!(
+            &event,
+            Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                ..
+            })
+        ) {
+            self.message = None;
+        }
+
         match event {
             Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
                 KeyCode::Left | KeyCode::Char('h') => {
@@ -348,6 +475,7 @@ impl PickerState {
                     PickerAction::Continue
                 }
                 KeyCode::Enter => match self.active_tab() {
+                    TabKind::Provider => self.commit_highlighted_provider(),
                     TabKind::Device => self.commit_highlighted_device(),
                     TabKind::App => self.commit_app(APPS[self.highlighted_app]),
                 },
@@ -371,6 +499,9 @@ impl PickerState {
                     return PickerAction::Continue;
                 }
                 match self.active_tab() {
+                    TabKind::Provider => provider_at_position(visible.list.area, column, row)
+                        .map(|provider| self.commit_provider(provider))
+                        .unwrap_or(PickerAction::Continue),
                     TabKind::Device => self
                         .device_at_position(visible.list, column, row)
                         .map(|device| device.id.clone())
@@ -443,6 +574,14 @@ fn app_at_position(list_area: Rect, column: u16, row: u16) -> Option<IosApp> {
     }
     let index = row.checked_sub(list_area.y)? as usize;
     APPS.get(index).copied()
+}
+
+fn provider_at_position(list_area: Rect, column: u16, row: u16) -> Option<ProviderKind> {
+    if !contains(list_area, column, row) {
+        return None;
+    }
+    let index = row.checked_sub(list_area.y)? as usize;
+    PROVIDERS.get(index).copied()
 }
 
 struct WorkerGuard {
@@ -551,19 +690,73 @@ fn android_device_options() -> io::Result<Vec<DeviceOption>> {
         .map_err(io::Error::other)
 }
 
-fn picker_layout(area: Rect) -> [Rect; 4] {
-    Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Fill(1),
-        Constraint::Length(3),
-    ])
-    .margin(2)
-    .areas(area)
+fn device_options(platform: PickerPlatform) -> io::Result<Vec<DeviceOption>> {
+    match platform {
+        PickerPlatform::Ios => ios_device_options(),
+        PickerPlatform::Android => android_device_options(),
+    }
+}
+
+fn centered_panel(area: Rect) -> Rect {
+    let inset_width = if area.width > 4 {
+        area.width - 4
+    } else {
+        area.width
+    };
+    let width = inset_width.min(88);
+    let height = area.height.min(14);
+    Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    )
+}
+
+fn picker_layout(area: Rect) -> (Rect, Rect) {
+    let [body, footer] = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
+    (centered_panel(body), footer)
 }
 
 fn tab_width(tab: TabKind) -> u16 {
     (tab.title().width() + 2).min(u16::MAX as usize) as u16
+}
+
+fn tab_areas(panel_area: Rect, tabs: &[TabKind]) -> Vec<Rect> {
+    let mut x = panel_area.x.saturating_add(1);
+    let right = panel_area.x.saturating_add(panel_area.width);
+    tabs.iter()
+        .map(|tab| {
+            let width = tab_width(*tab).min(right.saturating_sub(x));
+            let area = Rect::new(x, panel_area.y, width, u16::from(width > 0));
+            x = x.saturating_add(width);
+            area
+        })
+        .collect()
+}
+
+fn mode_color(state: &PickerState) -> Color {
+    let provider = if state.active_tab() == TabKind::Provider {
+        PROVIDERS.get(state.highlighted_provider).copied()
+    } else {
+        state.selected_provider
+    };
+    get_mode_color(&provider.map(|provider| provider.mode_name().to_string()))
+}
+
+fn tabs_title(state: &PickerState, color: Color) -> Line<'static> {
+    let spans = state.tabs.iter().enumerate().map(|(index, tab)| {
+        let style = if index == state.active_tab {
+            Style::default()
+                .fg(Color::Black)
+                .bg(color)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+        Span::styled(format!(" {} ", tab.title()), style)
+    });
+    Line::from_iter(spans)
 }
 
 fn visible_offset(state: &PickerState, list_area: Rect) -> usize {
@@ -635,52 +828,63 @@ fn selected_app_notice(state: &PickerState) -> (String, Style) {
     }
 }
 
+fn render_list(
+    frame: &mut ratatui::Frame<'_>,
+    items: impl IntoIterator<Item = ListItem<'static>>,
+    selected: Option<usize>,
+    offset: usize,
+    area: Rect,
+) {
+    let list = List::new(items).highlight_style(SELECTED_STYLE);
+    let mut list_state = ListState::default()
+        .with_selected(selected)
+        .with_offset(offset);
+    frame.render_stateful_widget(list, area, &mut list_state);
+}
+
 fn draw_picker(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     state: &PickerState,
 ) -> io::Result<VisibleAreas> {
     let mut visible = VisibleAreas::default();
     terminal.draw(|frame| {
-        let [tabs_area, _, list_area, footer_area] = picker_layout(frame.area());
-        let tab_constraints = state
-            .tabs
-            .iter()
-            .map(|tab| Constraint::Length(tab_width(*tab)))
-            .chain(std::iter::once(Constraint::Fill(1)));
-        let tab_areas = Layout::horizontal(tab_constraints).split(tabs_area);
-        visible.tabs = tab_areas[..state.tabs.len()].to_vec();
+        let (panel_area, footer_area) = picker_layout(frame.area());
+        let color = mode_color(state);
+        let panel = Panel::new(color)
+            .title(tabs_title(state, color))
+            .padding(Padding::horizontal(1))
+            .focused(true)
+            .build();
+        let panel_inner = panel.inner(panel_area);
+        let [list_area, notice_area] =
+            Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(panel_inner);
+        frame.render_widget(Clear, panel_area);
+        frame.render_widget(panel, panel_area);
+
+        visible.tabs = tab_areas(panel_area, &state.tabs);
         let offset = visible_offset(state, list_area);
         visible.list = VisibleList {
             area: list_area,
             offset,
         };
 
-        for (index, (tab, area)) in state.tabs.iter().zip(&visible.tabs).enumerate() {
-            let active = index == state.active_tab;
-            let style = if active {
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::DarkGray)
-            };
-            frame.render_widget(
-                Paragraph::new(format!(" {} ", tab.title()))
-                    .alignment(Alignment::Left)
-                    .style(style),
-                *area,
-            );
-        }
-
         match state.active_tab() {
+            TabKind::Provider => {
+                let items = PROVIDERS.iter().map(|provider| {
+                    ListItem::new(format!("{CONTENT_INDENT}{}", provider.display_name()))
+                });
+                render_list(frame, items, Some(state.highlighted_provider), 0, list_area);
+            }
             TabKind::Device => {
                 if state.devices.is_empty() {
                     let message = match (&state.discovery_error, state.has_discovered) {
                         (Some(error), _) => format!("设备发现失败：{error}\n正在重试…"),
                         (None, true) => format!(
                             "未发现已连接的 {} 设备\n连接后会自动出现",
-                            state.platform.display_name()
+                            state
+                                .selected_platform()
+                                .map(PickerPlatform::display_name)
+                                .unwrap_or("移动")
                         ),
                         (None, false) => "正在发现设备…".to_string(),
                     };
@@ -697,12 +901,7 @@ fn draw_picker(
                             device.name, device.detail
                         ))
                     });
-                    let list = List::new(items)
-                        .highlight_style(SELECTED_STYLE.add_modifier(Modifier::BOLD));
-                    let mut list_state = ListState::default()
-                        .with_selected(state.highlighted_device)
-                        .with_offset(offset);
-                    frame.render_stateful_widget(list, list_area, &mut list_state);
+                    render_list(frame, items, state.highlighted_device, offset, list_area);
                 }
             }
             TabKind::App => {
@@ -720,64 +919,87 @@ fn draw_picker(
                             app_row(*app, state.app_availability.map(|values| values[index]),)
                         ))
                     });
-                    let list = List::new(items)
-                        .highlight_style(SELECTED_STYLE.add_modifier(Modifier::BOLD));
-                    let mut list_state =
-                        ListState::default().with_selected(Some(state.highlighted_app));
-                    frame.render_stateful_widget(list, list_area, &mut list_state);
+                    render_list(frame, items, Some(state.highlighted_app), 0, list_area);
                 }
             }
         }
 
         let notice = match state.active_tab() {
-            TabKind::Device => Line::raw(""),
+            TabKind::Provider | TabKind::Device => Line::raw(""),
             TabKind::App => {
                 let (text, style) = selected_app_notice(state);
                 Line::styled(text, style)
             }
         };
-        let controls = if state.tabs.len() > 1 {
-            "←/→ 切换 Tab · ↑/↓ 选择 · Enter 确认 · Esc 返回 · q 退出"
+        frame.render_widget(Paragraph::new(notice), notice_area);
+
+        let provider_name = state
+            .selected_provider
+            .map(ProviderKind::display_name)
+            .unwrap_or("选择 Provider");
+        let mut status_bar = StatusBar::new()
+            .add_status(
+                StatusGravity::Left,
+                provider_name.to_string(),
+                StatusStyle::new().fg(color),
+            )
+            .add_status_plain(
+                StatusGravity::Right,
+                &format!("lazylog v{}", env!("CARGO_PKG_VERSION")),
+            );
+        if let Some(message) = &state.message {
+            status_bar = status_bar.add_status(
+                StatusGravity::Mid,
+                format!(" {message} "),
+                StatusStyle::new().fg(Color::LightRed),
+            );
         } else {
-            "↑/↓ 选择 · Enter 确认 · q 退出"
-        };
-        frame.render_widget(
-            Paragraph::new(vec![
-                notice,
-                Line::styled(
-                    format!("{CONTENT_INDENT}{controls}"),
-                    Style::default().fg(Color::DarkGray),
-                ),
-            ]),
-            footer_area,
-        );
+            status_bar = status_bar.add_status_plain(
+                StatusGravity::Mid,
+                "←/→ Tab · ↑/↓ 选择 · Enter 确认 · Esc 返回 · q 退出",
+            );
+        }
+        status_bar.render(footer_area, frame.buffer_mut());
     })?;
     Ok(visible)
 }
 
-fn run_picker<F>(
+type DiscoveryWorker = (
+    PickerPlatform,
+    mpsc::Receiver<io::Result<Vec<DeviceOption>>>,
+    WorkerGuard,
+);
+
+fn spawn_discovery_for(platform: Option<PickerPlatform>) -> Option<DiscoveryWorker> {
+    platform.map(|platform| {
+        let (updates, guard) = spawn_discovery(move || device_options(platform));
+        (platform, updates, guard)
+    })
+}
+
+pub(crate) fn pick(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    mut state: PickerState,
-    discover: F,
-) -> io::Result<Option<PickerAction>>
-where
-    F: FnMut() -> io::Result<Vec<DeviceOption>> + Send + 'static,
-{
+    state: &mut PickerState,
+) -> io::Result<Option<PickerSelection>> {
     terminal.clear()?;
-    let (device_updates, _discovery_guard) = spawn_discovery(discover);
-    let mut availability_worker = state.selected_device.clone().map(|device| {
+    let mut discovery_worker = spawn_discovery_for(state.selected_platform());
+    let mut availability_worker = state.selected_ios_device().map(|device| {
         let (updates, guard) = spawn_availability_worker(device.clone());
         (device, updates, guard)
     });
-    let mut visible = draw_picker(terminal, &state)?;
+    let mut visible = draw_picker(terminal, state)?;
 
     loop {
         let mut changed = false;
-        while let Ok(update) = device_updates.try_recv() {
-            if state.update_devices(update) {
-                availability_worker = None;
+        if let Some((platform, updates, _)) = &discovery_worker
+            && Some(*platform) == state.selected_platform()
+        {
+            while let Ok(update) = updates.try_recv() {
+                if state.update_devices(update) {
+                    availability_worker = None;
+                }
+                changed = true;
             }
-            changed = true;
         }
         if let Some((_, updates, _)) = &availability_worker {
             while let Ok((device, availability)) = updates.try_recv() {
@@ -786,53 +1008,31 @@ where
             }
         }
         if changed {
-            visible = draw_picker(terminal, &state)?;
+            visible = draw_picker(terminal, state)?;
         }
 
         if !event::poll(EVENT_POLL_INTERVAL)? {
             continue;
         }
 
-        let previous_device = state.selected_device.clone();
+        let previous_platform = state.selected_platform();
+        let previous_ios_device = state.selected_ios_device();
         match state.handle_event(event::read()?, &visible) {
             PickerAction::Continue => {
-                if state.selected_device != previous_device {
-                    availability_worker = state.selected_device.clone().map(|device| {
+                if state.selected_platform() != previous_platform {
+                    discovery_worker = spawn_discovery_for(state.selected_platform());
+                }
+                if state.selected_ios_device() != previous_ios_device {
+                    availability_worker = state.selected_ios_device().map(|device| {
                         let (updates, guard) = spawn_availability_worker(device.clone());
                         (device, updates, guard)
                     });
                 }
-                visible = draw_picker(terminal, &state)?;
+                visible = draw_picker(terminal, state)?;
             }
             PickerAction::Cancel => return Ok(None),
-            completed => return Ok(Some(completed)),
+            PickerAction::Complete(selection) => return Ok(Some(selection)),
         }
-    }
-}
-
-pub(crate) fn pick_ios(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    retained_device: Option<String>,
-    requested_app: Option<IosApp>,
-) -> io::Result<Option<IosSelection>> {
-    match run_picker(
-        terminal,
-        PickerState::ios(retained_device, requested_app),
-        ios_device_options,
-    )? {
-        Some(PickerAction::CompleteIos(selection)) => Ok(Some(selection)),
-        None => Ok(None),
-        Some(_) => unreachable!("iOS picker returned a non-iOS selection"),
-    }
-}
-
-pub(crate) fn pick_android(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-) -> io::Result<Option<String>> {
-    match run_picker(terminal, PickerState::android(), android_device_options)? {
-        Some(PickerAction::CompleteDevice(device)) => Ok(Some(device)),
-        None => Ok(None),
-        Some(_) => unreachable!("Android picker returned a non-Android selection"),
     }
 }
 
@@ -853,33 +1053,103 @@ mod tests {
         Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
     }
 
-    #[test]
-    fn ios_flow_exposes_device_then_app_tabs() {
-        let state = PickerState::ios(None, None);
+    fn ios_state(device: Option<&str>) -> PickerState {
+        let mut state = PickerState::new(Some(ProviderKind::Ios), None);
+        state.selected_device = device.map(str::to_string);
+        state
+    }
 
-        assert_eq!(state.tabs, vec![TabKind::Device, TabKind::App]);
+    #[test]
+    fn root_flow_starts_on_provider_with_first_option_highlighted() {
+        let state = PickerState::new(None, None);
+
+        assert_eq!(state.tabs, vec![TabKind::Provider]);
+        assert_eq!(state.active_tab(), TabKind::Provider);
+        assert_eq!(state.highlighted_provider, 0);
+    }
+
+    #[test]
+    fn ios_flow_exposes_progressive_tabs() {
+        let state = PickerState::new(Some(ProviderKind::Ios), None);
+
+        assert_eq!(
+            state.tabs,
+            vec![TabKind::Provider, TabKind::Device, TabKind::App]
+        );
         assert_eq!(state.active_tab(), TabKind::Device);
     }
 
     #[test]
-    fn tabs_are_compact_with_one_cell_horizontal_padding() {
-        assert_eq!(tab_width(TabKind::Device), 6);
-        assert_eq!(tab_width(TabKind::App), 5);
-    }
+    fn android_flow_exposes_provider_and_device_tabs() {
+        let state = PickerState::new(Some(ProviderKind::Android), None);
 
-    #[test]
-    fn android_flow_exposes_only_device_tab() {
-        let mut state = PickerState::android();
-
-        state.move_tab(1);
-
-        assert_eq!(state.tabs, vec![TabKind::Device]);
+        assert_eq!(state.tabs, vec![TabKind::Provider, TabKind::Device]);
         assert_eq!(state.active_tab(), TabKind::Device);
     }
 
     #[test]
-    fn horizontal_navigation_switches_ios_tabs() {
-        let mut state = PickerState::ios(None, None);
+    fn dyeh_flows_only_need_the_provider_tab() {
+        for provider in [ProviderKind::DyehPreview, ProviderKind::DyehEditor] {
+            let state = PickerState::new(Some(provider), None);
+            assert_eq!(state.tabs, vec![TabKind::Provider]);
+        }
+    }
+
+    #[test]
+    fn all_current_providers_are_listed() {
+        assert_eq!(
+            PROVIDERS,
+            [
+                ProviderKind::Ios,
+                ProviderKind::Android,
+                ProviderKind::DyehPreview,
+                ProviderKind::DyehEditor,
+            ]
+        );
+    }
+
+    #[test]
+    fn choosing_ios_advances_to_device() {
+        let mut state = PickerState::new(None, None);
+
+        assert_eq!(
+            state.commit_provider(ProviderKind::Ios),
+            PickerAction::Continue
+        );
+        assert_eq!(state.active_tab(), TabKind::Device);
+        assert_eq!(
+            state.tabs,
+            vec![TabKind::Provider, TabKind::Device, TabKind::App]
+        );
+    }
+
+    #[test]
+    fn choosing_dyeh_completes_without_a_device() {
+        let mut state = PickerState::new(None, None);
+
+        assert_eq!(
+            state.commit_provider(ProviderKind::DyehPreview),
+            PickerAction::Complete(PickerSelection::DyehPreview)
+        );
+    }
+
+    #[test]
+    fn selecting_a_different_provider_invalidates_later_steps() {
+        let mut state = ios_state(Some("one"));
+        state.selected_app = Some(IosApp::Douyin);
+        state.app_availability = Some([DisplayAvailability::Installed; APPS.len()]);
+
+        state.commit_provider(ProviderKind::Android);
+
+        assert_eq!(state.selected_device, None);
+        assert_eq!(state.selected_app, None);
+        assert_eq!(state.app_availability, None);
+        assert_eq!(state.tabs, vec![TabKind::Provider, TabKind::Device]);
+    }
+
+    #[test]
+    fn horizontal_navigation_switches_tabs() {
+        let mut state = PickerState::new(Some(ProviderKind::Ios), None);
         let visible = VisibleAreas::default();
 
         state.handle_event(key(KeyCode::Right), &visible);
@@ -887,30 +1157,33 @@ mod tests {
 
         state.handle_event(key(KeyCode::Left), &visible);
         assert_eq!(state.active_tab(), TabKind::Device);
+        state.handle_event(key(KeyCode::Left), &visible);
+        assert_eq!(state.active_tab(), TabKind::Provider);
     }
 
     #[test]
     fn escape_goes_back_one_tab_but_never_quits() {
-        let mut state = PickerState::ios(None, None);
+        let mut state = PickerState::new(Some(ProviderKind::Ios), None);
         let visible = VisibleAreas::default();
-        state.active_tab = 1;
+        state.active_tab = 2;
 
         assert_eq!(
             state.handle_event(key(KeyCode::Esc), &visible),
             PickerAction::Continue
         );
         assert_eq!(state.active_tab(), TabKind::Device);
-
+        state.handle_event(key(KeyCode::Esc), &visible);
+        assert_eq!(state.active_tab(), TabKind::Provider);
         assert_eq!(
             state.handle_event(key(KeyCode::Esc), &visible),
             PickerAction::Continue
         );
-        assert_eq!(state.active_tab(), TabKind::Device);
+        assert_eq!(state.active_tab(), TabKind::Provider);
     }
 
     #[test]
     fn q_is_the_picker_quit_key() {
-        let mut state = PickerState::ios(None, None);
+        let mut state = PickerState::new(None, None);
 
         assert_eq!(
             state.handle_event(key(KeyCode::Char('q')), &VisibleAreas::default()),
@@ -920,15 +1193,19 @@ mod tests {
 
     #[test]
     fn mouse_click_switches_tabs() {
-        let mut state = PickerState::ios(None, None);
+        let mut state = PickerState::new(Some(ProviderKind::Ios), None);
         let visible = VisibleAreas {
-            tabs: vec![Rect::new(0, 0, 10, 3), Rect::new(10, 0, 10, 3)],
+            tabs: vec![
+                Rect::new(0, 0, 10, 1),
+                Rect::new(10, 0, 10, 1),
+                Rect::new(20, 0, 10, 1),
+            ],
             list: VisibleList::default(),
         };
         let click = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
-            column: 12,
-            row: 1,
+            column: 22,
+            row: 0,
             modifiers: KeyModifiers::NONE,
         };
 
@@ -938,8 +1215,8 @@ mod tests {
     }
 
     #[test]
-    fn selecting_a_different_device_invalidates_later_steps() {
-        let mut state = PickerState::ios(Some("one".to_string()), None);
+    fn selecting_a_different_device_invalidates_app_state() {
+        let mut state = ios_state(Some("one"));
         state.selected_app = Some(IosApp::Douyin);
         state.app_availability = Some([DisplayAvailability::Installed; APPS.len()]);
 
@@ -952,7 +1229,7 @@ mod tests {
 
     #[test]
     fn selecting_the_same_device_preserves_later_state() {
-        let mut state = PickerState::ios(Some("one".to_string()), None);
+        let mut state = ios_state(Some("one"));
         state.selected_app = Some(IosApp::Douyin);
         state.app_availability = Some([DisplayAvailability::Installed; APPS.len()]);
 
@@ -967,7 +1244,8 @@ mod tests {
 
     #[test]
     fn disconnected_selected_device_returns_to_device_tab() {
-        let mut state = PickerState::ios(Some("one".to_string()), None);
+        let mut state = ios_state(Some("one"));
+        state.active_tab = 2;
 
         assert!(state.update_devices(Ok(vec![device("two")])));
 
@@ -977,27 +1255,41 @@ mod tests {
 
     #[test]
     fn app_cannot_be_confirmed_without_a_device() {
-        let mut state = PickerState::ios(None, None);
+        let mut state = ios_state(None);
 
         assert_eq!(state.commit_app(IosApp::EffectCam), PickerAction::Continue);
     }
 
     #[test]
     fn preset_app_can_be_confirmed_before_installation_hint_arrives() {
-        let mut state = PickerState::ios(Some("one".to_string()), None);
+        let mut state = ios_state(Some("one"));
 
         assert_eq!(
             state.commit_app(IosApp::EffectCam),
-            PickerAction::CompleteIos(IosSelection {
+            PickerAction::Complete(PickerSelection::Ios(IosSelection {
                 device: "one".to_string(),
                 app: IosApp::EffectCam,
-            })
+            }))
         );
     }
 
     #[test]
+    fn requested_app_skips_app_tab_once_device_is_selected() {
+        let mut state = PickerState::new(Some(ProviderKind::Ios), Some(IosApp::Douyin));
+
+        assert_eq!(
+            state.commit_device("one".to_string()),
+            PickerAction::Complete(PickerSelection::Ios(IosSelection {
+                device: "one".to_string(),
+                app: IosApp::Douyin,
+            }))
+        );
+        assert_eq!(state.requested_app, None);
+    }
+
+    #[test]
     fn installation_hint_never_disables_a_preset_app() {
-        let mut state = PickerState::ios(Some("one".to_string()), None);
+        let mut state = ios_state(Some("one"));
 
         state.app_availability = Some([
             DisplayAvailability::NotInstalled,
@@ -1005,7 +1297,7 @@ mod tests {
         ]);
         assert!(matches!(
             state.commit_app(IosApp::EffectCam),
-            PickerAction::CompleteIos(_)
+            PickerAction::Complete(PickerSelection::Ios(_))
         ));
 
         state.app_availability = Some([
@@ -1014,27 +1306,13 @@ mod tests {
         ]);
         assert!(matches!(
             state.commit_app(IosApp::EffectCam),
-            PickerAction::CompleteIos(_)
+            PickerAction::Complete(PickerSelection::Ios(_))
         ));
     }
 
     #[test]
-    fn installed_app_can_be_confirmed() {
-        let mut state = PickerState::ios(Some("one".to_string()), None);
-        state.app_availability = Some([DisplayAvailability::Installed; APPS.len()]);
-
-        assert_eq!(
-            state.commit_app(IosApp::EffectCam),
-            PickerAction::CompleteIos(IosSelection {
-                device: "one".to_string(),
-                app: IosApp::EffectCam,
-            })
-        );
-    }
-
-    #[test]
     fn discovery_selects_the_first_device_by_default() {
-        let mut state = PickerState::ios(None, None);
+        let mut state = PickerState::new(Some(ProviderKind::Ios), None);
 
         state.update_devices(Ok(vec![device("one"), device("two")]));
 
@@ -1042,15 +1320,47 @@ mod tests {
     }
 
     #[test]
+    fn tabs_are_compact_and_embedded_on_the_panel_border() {
+        assert_eq!(tab_width(TabKind::Provider), 10);
+        assert_eq!(tab_width(TabKind::Device), 6);
+        assert_eq!(tab_width(TabKind::App), 5);
+
+        let areas = tab_areas(
+            Rect::new(10, 4, 40, 12),
+            &[TabKind::Provider, TabKind::Device, TabKind::App],
+        );
+        assert_eq!(
+            areas,
+            vec![
+                Rect::new(11, 4, 10, 1),
+                Rect::new(21, 4, 6, 1),
+                Rect::new(27, 4, 5, 1),
+            ]
+        );
+    }
+
+    #[test]
+    fn picker_panel_is_centered_and_bounded() {
+        assert_eq!(
+            centered_panel(Rect::new(0, 0, 120, 30)),
+            Rect::new(16, 8, 88, 14)
+        );
+        assert_eq!(
+            centered_panel(Rect::new(3, 2, 40, 10)),
+            Rect::new(5, 2, 36, 10)
+        );
+    }
+
+    #[test]
     fn app_statuses_start_in_the_same_terminal_column() {
         let effectcam = app_row(IosApp::EffectCam, Some(DisplayAvailability::Installed));
         let douyin = app_row(IosApp::Douyin, Some(DisplayAvailability::Installed));
-        let effectcam_separator = effectcam.find('✓').unwrap();
-        let douyin_separator = douyin.find('✓').unwrap();
+        let effectcam_status = effectcam.find('✓').unwrap();
+        let douyin_status = douyin.find('✓').unwrap();
 
         assert_eq!(
-            effectcam[..effectcam_separator].width(),
-            douyin[..douyin_separator].width()
+            effectcam[..effectcam_status].width(),
+            douyin[..douyin_status].width()
         );
     }
 
