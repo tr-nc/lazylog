@@ -140,6 +140,9 @@ highlights its first device by default. Android proceeds directly from device se
 iOS adds a second, iOS-only App picker. If an iOS target App exits, Lazylog returns to the App
 picker while retaining the selected device. If the selected iOS or Android device disconnects,
 Lazylog returns to the device picker. Pressing `q` in the log viewer or either picker exits Lazylog.
+The iOS App picker also reports whether each App has an existing process. When the highlighted App
+is already running, it warns that confirming will terminate that foreground/background process and
+relaunch the App so `devicectl` can attach its console.
 
 The generated capture path is stored under the platform-local data directory in
 `lazylog/captures`. A complete capture means everything Lazylog observed during that invocation;

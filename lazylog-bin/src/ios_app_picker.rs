@@ -1,6 +1,7 @@
 use crossterm::event::{
     self, Event, KeyCode, KeyEventKind, MouseButton, MouseEvent, MouseEventKind,
 };
+use lazylog_ios::{IosAppState, app_state, connected_devices};
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
@@ -10,9 +11,17 @@ use ratatui::{
     widgets::{List, ListItem, ListState, Paragraph},
 };
 use std::io;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+    mpsc,
+};
+use std::thread;
 use std::time::Duration;
 
 const APPS: [IosApp; 2] = [IosApp::EffectCam, IosApp::Douyin];
+const STATUS_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
+const EVENT_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum IosApp {
@@ -66,13 +75,66 @@ enum PickerAction {
     Cancel,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DisplayAppState {
+    Checking,
+    Running,
+    NotRunning,
+    NotInstalled,
+    Unknown,
+}
+
+impl DisplayAppState {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Checking => "… 检测中",
+            Self::Running => "● 正在运行",
+            Self::NotRunning => "○ 未运行",
+            Self::NotInstalled => "– 未安装",
+            Self::Unknown => "? 状态未知",
+        }
+    }
+}
+
+impl From<IosAppState> for DisplayAppState {
+    fn from(value: IosAppState) -> Self {
+        match value {
+            IosAppState::Running => Self::Running,
+            IosAppState::NotRunning => Self::NotRunning,
+            IosAppState::NotInstalled => Self::NotInstalled,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PickerOutcome {
+    Selected(IosApp),
+    DeviceDisconnected,
+    Cancelled,
+}
+
+enum StatusUpdate {
+    App(IosApp, DisplayAppState),
+    DeviceDisconnected,
+}
+
 struct PickerState {
     selected: Option<usize>,
+    app_states: [DisplayAppState; APPS.len()],
 }
 
 impl PickerState {
     fn new() -> Self {
-        Self { selected: Some(0) }
+        Self {
+            selected: Some(0),
+            app_states: [DisplayAppState::Checking; APPS.len()],
+        }
+    }
+
+    fn update_app_state(&mut self, app: IosApp, state: DisplayAppState) {
+        if let Some(index) = APPS.iter().position(|candidate| *candidate == app) {
+            self.app_states[index] = state;
+        }
     }
 
     fn handle_event(&mut self, event: Event, list_area: Rect) -> PickerAction {
@@ -132,9 +194,59 @@ impl PickerState {
     }
 }
 
+struct StatusWorkerGuard {
+    should_stop: Arc<AtomicBool>,
+}
+
+impl Drop for StatusWorkerGuard {
+    fn drop(&mut self) {
+        self.should_stop.store(true, Ordering::Relaxed);
+    }
+}
+
+fn spawn_status_worker(device: String) -> (mpsc::Receiver<StatusUpdate>, StatusWorkerGuard) {
+    let (sender, receiver) = mpsc::channel();
+    let should_stop = Arc::new(AtomicBool::new(false));
+    let worker_stop = should_stop.clone();
+
+    thread::spawn(move || {
+        while !worker_stop.load(Ordering::Relaxed) {
+            if connected_devices().is_ok_and(|devices| {
+                !devices
+                    .iter()
+                    .any(|candidate| candidate.identifier == device)
+            }) {
+                let _ = sender.send(StatusUpdate::DeviceDisconnected);
+                return;
+            }
+
+            for app in APPS {
+                if worker_stop.load(Ordering::Relaxed) {
+                    return;
+                }
+                let state = app_state(&device, app.bundle_id())
+                    .map(DisplayAppState::from)
+                    .unwrap_or(DisplayAppState::Unknown);
+                if sender.send(StatusUpdate::App(app, state)).is_err() {
+                    return;
+                }
+            }
+
+            let mut elapsed = Duration::ZERO;
+            while elapsed < STATUS_REFRESH_INTERVAL && !worker_stop.load(Ordering::Relaxed) {
+                let sleep = Duration::from_millis(50).min(STATUS_REFRESH_INTERVAL - elapsed);
+                thread::sleep(sleep);
+                elapsed += sleep;
+            }
+        }
+    });
+
+    (receiver, StatusWorkerGuard { should_stop })
+}
+
 fn picker_layout(area: Rect) -> [Rect; 3] {
     Layout::vertical([
-        Constraint::Length(3),
+        Constraint::Length(4),
         Constraint::Length(APPS.len() as u16),
         Constraint::Fill(1),
     ])
@@ -167,13 +279,20 @@ fn draw_picker(
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
             ),
-            Line::from("Lazylog 不会在你确认前启动任何 App"),
+            Line::from("状态表示设备上是否存在该进程；不代表 App 当前处于前台"),
+            Line::from("Lazylog 不会在你确认前启动 App；确认后会重启所选 App 并接入日志"),
         ])
         .alignment(Alignment::Center);
         frame.render_widget(header, header_area);
 
-        let items =
-            APPS.map(|app| ListItem::new(format!("{}  ({})", app.display_name(), app.subtitle())));
+        let items = APPS.iter().enumerate().map(|(index, app)| {
+            ListItem::new(format!(
+                "{}  ({})  · {}",
+                app.display_name(),
+                app.subtitle(),
+                state.app_states[index].label()
+            ))
+        });
         let list = List::new(items).highlight_symbol("▶ ").highlight_style(
             Style::default()
                 .fg(Color::Yellow)
@@ -183,9 +302,50 @@ fn draw_picker(
         list_state.select(state.selected);
         frame.render_stateful_widget(list, list_area, &mut list_state);
 
-        let footer = Paragraph::new("↑/↓ 或 j/k 选择 · Enter 确认 · 鼠标点击选择 · Esc/q 取消")
-            .alignment(Alignment::Center)
-            .style(Style::default().fg(Color::DarkGray));
+        let selected = state.selected.unwrap_or(0);
+        let selected_app = APPS[selected];
+        let selected_state = state.app_states[selected];
+        let notice = match selected_state {
+            DisplayAppState::Running => Line::styled(
+                format!(
+                    "⚠ {} 已在运行（可能在前台或后台）；确认后现有进程会被终止并重新启动",
+                    selected_app.display_name()
+                ),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            DisplayAppState::NotInstalled => Line::styled(
+                format!("{} 未安装在当前设备上", selected_app.display_name()),
+                Style::default().fg(Color::Red),
+            ),
+            DisplayAppState::Checking => Line::styled(
+                format!("正在检测 {} 的运行状态…", selected_app.display_name()),
+                Style::default().fg(Color::DarkGray),
+            ),
+            DisplayAppState::Unknown => Line::styled(
+                format!(
+                    "无法确认 {} 是否正在运行；确认后仍会尝试终止并重新启动",
+                    selected_app.display_name()
+                ),
+                Style::default().fg(Color::Yellow),
+            ),
+            DisplayAppState::NotRunning => Line::styled(
+                format!(
+                    "{} 当前未运行；确认后将启动并接入日志",
+                    selected_app.display_name()
+                ),
+                Style::default().fg(Color::DarkGray),
+            ),
+        };
+        let footer = Paragraph::new(vec![
+            notice,
+            Line::styled(
+                "↑/↓ 或 j/k 选择 · Enter 确认 · 鼠标点击选择 · Esc/q 退出",
+                Style::default().fg(Color::DarkGray),
+            ),
+        ])
+        .alignment(Alignment::Center);
         frame.render_widget(footer, footer_area);
     })?;
     Ok(list_area)
@@ -193,20 +353,38 @@ fn draw_picker(
 
 pub(crate) fn pick(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-) -> io::Result<Option<IosApp>> {
+    device: &str,
+) -> io::Result<PickerOutcome> {
     terminal.clear()?;
+    let (status_updates, _worker_guard) = spawn_status_worker(device.to_string());
     let mut state = PickerState::new();
     let mut list_area = draw_picker(terminal, &state)?;
 
     loop {
-        if !event::poll(Duration::from_millis(16))? {
+        let mut changed = false;
+        while let Ok(update) = status_updates.try_recv() {
+            match update {
+                StatusUpdate::App(app, app_state) => {
+                    state.update_app_state(app, app_state);
+                    changed = true;
+                }
+                StatusUpdate::DeviceDisconnected => {
+                    return Ok(PickerOutcome::DeviceDisconnected);
+                }
+            }
+        }
+        if changed {
+            list_area = draw_picker(terminal, &state)?;
+        }
+
+        if !event::poll(EVENT_POLL_INTERVAL)? {
             continue;
         }
 
         match state.handle_event(event::read()?, list_area) {
             PickerAction::Continue => list_area = draw_picker(terminal, &state)?,
-            PickerAction::Select(app) => return Ok(Some(app)),
-            PickerAction::Cancel => return Ok(None),
+            PickerAction::Select(app) => return Ok(PickerOutcome::Selected(app)),
+            PickerAction::Cancel => return Ok(PickerOutcome::Cancelled),
         }
     }
 }
@@ -262,5 +440,15 @@ mod tests {
             state.handle_event(Event::Mouse(click), area),
             PickerAction::Select(IosApp::Douyin)
         );
+    }
+
+    #[test]
+    fn runtime_status_is_recorded_for_the_matching_app() {
+        let mut state = PickerState::new();
+
+        state.update_app_state(IosApp::Douyin, DisplayAppState::Running);
+
+        assert_eq!(state.app_states[0], DisplayAppState::Checking);
+        assert_eq!(state.app_states[1], DisplayAppState::Running);
     }
 }

@@ -189,7 +189,18 @@ fn usb_device_is_attached(udid: &str) -> Option<bool> {
     Some(usb_tree.contains(&normalized_udid))
 }
 
-fn query_app_running(device: &str, bundle_id: &str) -> Result<bool> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IosAppState {
+    Running,
+    NotRunning,
+    NotInstalled,
+}
+
+/// Report whether an installed App currently has a process on the device.
+///
+/// `Running` includes foreground, background, and suspended processes. It does
+/// not imply that the App is visible or that Lazylog launched it.
+pub fn app_state(device: &str, bundle_id: &str) -> Result<IosAppState> {
     let apps = run_devicectl_json(
         &[
             "device",
@@ -209,14 +220,14 @@ fn query_app_running(device: &str, bundle_id: &str) -> Result<bool> {
         .and_then(|app| app.get("url"))
         .and_then(Value::as_str)
     else {
-        return Ok(false);
+        return Ok(IosAppState::NotInstalled);
     };
 
     let processes = run_devicectl_json(
         &["device", "info", "processes", "--device", device],
         "process-status",
     )?;
-    Ok(processes
+    let is_running = processes
         .pointer("/result/runningProcesses")
         .and_then(Value::as_array)
         .is_some_and(|processes| {
@@ -226,7 +237,19 @@ fn query_app_running(device: &str, bundle_id: &str) -> Result<bool> {
                     .and_then(Value::as_str)
                     .is_some_and(|executable| executable.starts_with(app_url))
             })
-        }))
+        });
+    Ok(if is_running {
+        IosAppState::Running
+    } else {
+        IosAppState::NotRunning
+    })
+}
+
+fn query_app_running(device: &str, bundle_id: &str) -> Result<bool> {
+    Ok(matches!(
+        app_state(device, bundle_id)?,
+        IosAppState::Running
+    ))
 }
 
 fn disconnect_reason(

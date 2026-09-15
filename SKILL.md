@@ -99,6 +99,11 @@ either `--ios-app effectcam` or `--ios-app douyin`. Lazylog then terminates and 
 App so its standard streams can be attached. Use it only on a development or test device:
 unredacted output can contain credentials and user data.
 
+The iOS App picker detects whether each App already has a process, regardless of who launched it.
+It cannot distinguish foreground from background/suspended state. If the highlighted App is
+running, the picker explicitly warns that confirmation will terminate the existing process before
+relaunching it for console attachment.
+
 ## Behavior
 
 - agent mode captures until interrupted or until `--duration` expires

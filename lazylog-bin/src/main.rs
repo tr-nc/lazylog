@@ -440,10 +440,17 @@ fn run_interactive_ios(
         }
 
         if selected_app.is_none() {
-            let Some(app) = ios_app_picker::pick(terminal)? else {
-                return Ok(());
-            };
-            selected_app = Some(app);
+            let device = selected_device
+                .as_deref()
+                .expect("iOS device must be selected before choosing an app");
+            match ios_app_picker::pick(terminal, device)? {
+                ios_app_picker::PickerOutcome::Selected(app) => selected_app = Some(app),
+                ios_app_picker::PickerOutcome::DeviceDisconnected => {
+                    selected_device = None;
+                    continue;
+                }
+                ios_app_picker::PickerOutcome::Cancelled => return Ok(()),
+            }
         }
 
         let device = selected_device
