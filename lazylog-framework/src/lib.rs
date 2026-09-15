@@ -224,4 +224,4 @@ pub use app::{
     AppDesc, AppExitReason, start_with_desc, start_with_desc_until_provider_disconnect,
     start_with_provider,
 };
-pub use theme::get_mode_color;
+pub use theme::{SELECTED_STYLE, get_mode_color};

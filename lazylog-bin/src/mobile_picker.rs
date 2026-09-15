@@ -2,6 +2,7 @@ use crossterm::event::{
     self, Event, KeyCode, KeyEventKind, MouseButton, MouseEvent, MouseEventKind,
 };
 use lazylog_android::connected_devices as connected_android_devices;
+use lazylog_framework::SELECTED_STYLE;
 use lazylog_ios::{
     IosAppAvailability, app_availabilities, connected_devices as connected_ios_devices,
 };
@@ -691,13 +692,13 @@ fn draw_picker(
                     );
                 } else {
                     let items = state.devices.iter().map(|device| {
-                        ListItem::new(format!("{}  ({})", device.name, device.detail))
+                        ListItem::new(format!(
+                            "{CONTENT_INDENT}{}  ({})",
+                            device.name, device.detail
+                        ))
                     });
-                    let list = List::new(items).highlight_symbol("▶ ").highlight_style(
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD),
-                    );
+                    let list = List::new(items)
+                        .highlight_style(SELECTED_STYLE.add_modifier(Modifier::BOLD));
                     let mut list_state = ListState::default()
                         .with_selected(state.highlighted_device)
                         .with_offset(offset);
@@ -714,16 +715,13 @@ fn draw_picker(
                     );
                 } else {
                     let items = APPS.iter().enumerate().map(|(index, app)| {
-                        ListItem::new(app_row(
-                            *app,
-                            state.app_availability.map(|values| values[index]),
+                        ListItem::new(format!(
+                            "{CONTENT_INDENT}{}",
+                            app_row(*app, state.app_availability.map(|values| values[index]),)
                         ))
                     });
-                    let list = List::new(items).highlight_symbol("▶ ").highlight_style(
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD),
-                    );
+                    let list = List::new(items)
+                        .highlight_style(SELECTED_STYLE.add_modifier(Modifier::BOLD));
                     let mut list_state =
                         ListState::default().with_selected(Some(state.highlighted_app));
                     frame.render_stateful_widget(list, list_area, &mut list_state);
