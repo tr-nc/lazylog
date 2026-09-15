@@ -64,13 +64,6 @@ impl IosApp {
             Self::Douyin => "抖音开发版",
         }
     }
-
-    fn subtitle(self) -> &'static str {
-        match self {
-            Self::EffectCam => "EffectCam",
-            Self::Douyin => "Douyin",
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -584,13 +577,13 @@ fn visible_offset(state: &PickerState, list_area: Rect) -> usize {
 }
 
 fn app_row(app: IosApp, availability: Option<DisplayAvailability>) -> String {
-    let identity = format!("{}  ({})", app.display_name(), app.subtitle());
+    let identity = app.display_name();
     let Some(availability) = availability else {
-        return identity;
+        return identity.to_string();
     };
     let identity_column_width = APPS
         .iter()
-        .map(|app| format!("{}  ({})", app.display_name(), app.subtitle()).width())
+        .map(|app| app.display_name().width())
         .max()
         .unwrap_or_default();
     let padding = identity_column_width.saturating_sub(identity.width()) + 2;
@@ -1065,7 +1058,7 @@ mod tests {
 
     #[test]
     fn preset_app_rows_exist_before_availability_hint_arrives() {
-        assert_eq!(app_row(IosApp::EffectCam, None), "像塑内测版  (EffectCam)");
-        assert_eq!(app_row(IosApp::Douyin, None), "抖音开发版  (Douyin)");
+        assert_eq!(app_row(IosApp::EffectCam, None), "像塑内测版");
+        assert_eq!(app_row(IosApp::Douyin, None), "抖音开发版");
     }
 }
