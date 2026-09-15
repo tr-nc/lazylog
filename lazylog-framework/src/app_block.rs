@@ -1,37 +1,11 @@
+use crate::panel::{Panel, border_color};
 use ratatui::{
     layout::Rect,
-    prelude::Stylize,
     style::{Color, Style},
     symbols::scrollbar,
-    widgets::{
-        Block, BorderType, Borders, Padding, Scrollbar, ScrollbarOrientation, ScrollbarState,
-    },
+    widgets::{Block, Borders, Padding, Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
 use uuid::Uuid;
-
-fn brighten_color(color: Color) -> Color {
-    match color {
-        Color::Rgb(r, g, b) => {
-            #[allow(clippy::unnecessary_min_or_max)]
-            let r = r.saturating_add(10).min(255);
-            #[allow(clippy::unnecessary_min_or_max)]
-            let g = g.saturating_add(10).min(255);
-            #[allow(clippy::unnecessary_min_or_max)]
-            let b = b.saturating_add(10).min(255);
-            Color::Rgb(r, g, b)
-        }
-        Color::Gray => Color::Gray,
-        c => c,
-    }
-}
-
-pub fn get_border_color(focused: bool, mode_color: Color) -> Color {
-    if focused {
-        brighten_color(mode_color)
-    } else {
-        mode_color
-    }
-}
 
 pub struct AppBlock {
     #[allow(dead_code)]
@@ -81,36 +55,16 @@ impl AppBlock {
     }
 
     pub fn build(&self, focused: bool, mode_color: Color) -> Block<'_> {
-        let mut block = Block::default()
+        let mut panel = Panel::new(mode_color)
             .borders(Borders::TOP | Borders::LEFT)
-            .border_type(BorderType::Rounded);
-
-        let border_color = if focused {
-            // brighten mode color for focused state (blend with white)
-            brighten_color(mode_color)
-        } else {
-            mode_color
-        };
-        block = block.border_style(Style::new().fg(border_color));
-
+            .focused(focused);
         if let Some(title) = &self.title {
-            let title_style = if focused {
-                Style::new().bold()
-            } else {
-                Style::new()
-            };
-            block = block.title(
-                ratatui::prelude::Line::from(title.as_str())
-                    .style(title_style)
-                    .left_aligned(),
-            );
+            panel = panel.title(ratatui::prelude::Line::from(title.as_str()));
         }
-
         if let Some(padding) = self.padding {
-            block = block.padding(padding);
+            panel = panel.padding(padding);
         }
-
-        block
+        panel.build()
     }
 
     pub fn update_scrollbar_state(&mut self, total_items: usize, selected_index: Option<usize>) {
@@ -189,7 +143,7 @@ impl AppBlock {
     /// Creates a uniform scrollbar widget with consistent styling
     pub fn create_scrollbar(focused: bool, mode_color: Color) -> Scrollbar<'static> {
         let handle_color = if focused { Color::White } else { Color::Gray };
-        let track_color = get_border_color(focused, mode_color);
+        let track_color = border_color(focused, mode_color);
 
         Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .symbols(scrollbar::VERTICAL)
@@ -204,7 +158,7 @@ impl AppBlock {
     /// Creates a horizontal scrollbar widget with consistent styling
     pub fn create_horizontal_scrollbar(focused: bool, mode_color: Color) -> Scrollbar<'static> {
         let handle_color = if focused { Color::White } else { Color::Gray };
-        let track_color = get_border_color(focused, mode_color);
+        let track_color = border_color(focused, mode_color);
 
         Scrollbar::new(ScrollbarOrientation::HorizontalBottom)
             .symbols(scrollbar::HORIZONTAL)
@@ -218,7 +172,7 @@ impl AppBlock {
 
     /// Creates a horizontal scrollbar that only shows track (no thumb)
     pub fn create_horizontal_track_only(focused: bool, mode_color: Color) -> Scrollbar<'static> {
-        let track_color = get_border_color(focused, mode_color);
+        let track_color = border_color(focused, mode_color);
 
         Scrollbar::new(ScrollbarOrientation::HorizontalBottom)
             .symbols(scrollbar::HORIZONTAL)

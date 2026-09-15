@@ -214,6 +214,7 @@ pub(crate) mod content_line_maker;
 pub(crate) mod filter;
 pub(crate) mod log_list;
 pub(crate) mod log_parser;
+pub mod panel;
 pub mod status_bar;
 pub(crate) mod theme;
 pub(crate) mod ui_logger;
@@ -223,3 +224,4 @@ pub use app::{
     AppDesc, AppExitReason, start_with_desc, start_with_desc_until_provider_disconnect,
     start_with_provider,
 };
+pub use theme::get_mode_color;
