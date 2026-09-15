@@ -20,3 +20,4 @@ crossterm.workspace = true
 dirs.workspace = true
 ratatui.workspace = true
 signal-hook.workspace = true
+unicode-width.workspace = true

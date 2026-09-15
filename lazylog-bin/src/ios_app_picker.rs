@@ -18,6 +18,7 @@ use std::sync::{
 };
 use std::thread;
 use std::time::Duration;
+use unicode_width::UnicodeWidthStr;
 
 const APPS: [IosApp; 2] = [IosApp::EffectCam, IosApp::Douyin];
 const STATUS_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
@@ -88,8 +89,8 @@ impl DisplayAppState {
     fn label(self) -> &'static str {
         match self {
             Self::Checking => "… 检测中",
-            Self::Running => "● 正在运行",
-            Self::NotRunning => "○ 未运行",
+            Self::Running => "● 进程仍存在",
+            Self::NotRunning => "○ 无现有进程",
             Self::NotInstalled => "– 未安装",
             Self::Unknown => "? 状态未知",
         }
@@ -99,8 +100,8 @@ impl DisplayAppState {
 impl From<IosAppState> for DisplayAppState {
     fn from(value: IosAppState) -> Self {
         match value {
-            IosAppState::Running => Self::Running,
-            IosAppState::NotRunning => Self::NotRunning,
+            IosAppState::ProcessPresent => Self::Running,
+            IosAppState::NoProcess => Self::NotRunning,
             IosAppState::NotInstalled => Self::NotInstalled,
         }
     }
@@ -137,6 +138,25 @@ impl PickerState {
         }
     }
 
+    fn app_is_selectable(&self, app: IosApp) -> bool {
+        let state = APPS
+            .iter()
+            .position(|candidate| *candidate == app)
+            .map(|index| self.app_states[index]);
+        !matches!(
+            state,
+            Some(DisplayAppState::Checking | DisplayAppState::NotInstalled)
+        )
+    }
+
+    fn select(&self, app: IosApp) -> PickerAction {
+        if self.app_is_selectable(app) {
+            PickerAction::Select(app)
+        } else {
+            PickerAction::Continue
+        }
+    }
+
     fn handle_event(&mut self, event: Event, list_area: Rect) -> PickerAction {
         match event {
             Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
@@ -156,7 +176,7 @@ impl PickerState {
                 }
                 KeyCode::Enter => self
                     .selected
-                    .map(|selected| PickerAction::Select(APPS[selected]))
+                    .map(|selected| self.select(APPS[selected]))
                     .unwrap_or(PickerAction::Continue),
                 KeyCode::Esc | KeyCode::Char('q') => PickerAction::Cancel,
                 _ => PickerAction::Continue,
@@ -167,7 +187,7 @@ impl PickerState {
                 row,
                 ..
             }) => app_at_position(list_area, column, row)
-                .map(PickerAction::Select)
+                .map(|app| self.select(app))
                 .unwrap_or(PickerAction::Continue),
             Event::Mouse(MouseEvent {
                 kind: MouseEventKind::ScrollUp,
@@ -246,7 +266,7 @@ fn spawn_status_worker(device: String) -> (mpsc::Receiver<StatusUpdate>, StatusW
 
 fn picker_layout(area: Rect) -> [Rect; 3] {
     Layout::vertical([
-        Constraint::Length(4),
+        Constraint::Length(2),
         Constraint::Length(APPS.len() as u16),
         Constraint::Fill(1),
     ])
@@ -263,6 +283,58 @@ fn app_at_position(list_area: Rect, column: u16, row: u16) -> Option<IosApp> {
     APPS.get(index).copied()
 }
 
+fn app_row(app: IosApp, state: DisplayAppState) -> String {
+    let identity = format!("{}  ({})", app.display_name(), app.subtitle());
+    let identity_column_width = APPS
+        .iter()
+        .map(|app| format!("{}  ({})", app.display_name(), app.subtitle()).width())
+        .max()
+        .unwrap_or_default();
+    let padding = identity_column_width.saturating_sub(identity.width()) + 2;
+    format!("{identity}{}· {}", " ".repeat(padding), state.label())
+}
+
+const CONTENT_INDENT: &str = "  ";
+
+fn selected_notice(app: IosApp, state: DisplayAppState) -> (String, Style) {
+    match state {
+        DisplayAppState::Running => (
+            format!(
+                "{CONTENT_INDENT}⚠ 检测到 {} 的现有进程（可能在后台或挂起）；确认后会终止并重新启动",
+                app.display_name()
+            ),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
+        DisplayAppState::NotInstalled => (
+            format!("{CONTENT_INDENT}{} 未安装在当前设备上", app.display_name()),
+            Style::default().fg(Color::Red),
+        ),
+        DisplayAppState::Checking => (
+            format!(
+                "{CONTENT_INDENT}正在检测 {} 的进程状态…",
+                app.display_name()
+            ),
+            Style::default().fg(Color::DarkGray),
+        ),
+        DisplayAppState::Unknown => (
+            format!(
+                "{CONTENT_INDENT}无法确认 {} 是否存在进程；确认后仍会尝试终止并重新启动",
+                app.display_name()
+            ),
+            Style::default().fg(Color::Yellow),
+        ),
+        DisplayAppState::NotRunning => (
+            format!(
+                "{CONTENT_INDENT}{} 无现有进程；确认后将启动并接入日志",
+                app.display_name()
+            ),
+            Style::default().fg(Color::DarkGray),
+        ),
+    }
+}
+
 fn draw_picker(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     state: &PickerState,
@@ -272,27 +344,19 @@ fn draw_picker(
         let [header_area, current_list_area, footer_area] = picker_layout(frame.area());
         list_area = current_list_area;
 
-        let header = Paragraph::new(vec![
-            Line::styled(
-                "选择要加载的 iOS App",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Line::from("状态表示设备上是否存在该进程；不代表 App 当前处于前台"),
-            Line::from("Lazylog 不会在你确认前启动 App；确认后会重启所选 App 并接入日志"),
-        ])
+        let header = Paragraph::new(Line::styled(
+            "选择要加载的 iOS App",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ))
         .alignment(Alignment::Center);
         frame.render_widget(header, header_area);
 
-        let items = APPS.iter().enumerate().map(|(index, app)| {
-            ListItem::new(format!(
-                "{}  ({})  · {}",
-                app.display_name(),
-                app.subtitle(),
-                state.app_states[index].label()
-            ))
-        });
+        let items = APPS
+            .iter()
+            .enumerate()
+            .map(|(index, app)| ListItem::new(app_row(*app, state.app_states[index])));
         let list = List::new(items).highlight_symbol("▶ ").highlight_style(
             Style::default()
                 .fg(Color::Yellow)
@@ -305,47 +369,16 @@ fn draw_picker(
         let selected = state.selected.unwrap_or(0);
         let selected_app = APPS[selected];
         let selected_state = state.app_states[selected];
-        let notice = match selected_state {
-            DisplayAppState::Running => Line::styled(
-                format!(
-                    "⚠ {} 已在运行（可能在前台或后台）；确认后现有进程会被终止并重新启动",
-                    selected_app.display_name()
-                ),
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            DisplayAppState::NotInstalled => Line::styled(
-                format!("{} 未安装在当前设备上", selected_app.display_name()),
-                Style::default().fg(Color::Red),
-            ),
-            DisplayAppState::Checking => Line::styled(
-                format!("正在检测 {} 的运行状态…", selected_app.display_name()),
-                Style::default().fg(Color::DarkGray),
-            ),
-            DisplayAppState::Unknown => Line::styled(
-                format!(
-                    "无法确认 {} 是否正在运行；确认后仍会尝试终止并重新启动",
-                    selected_app.display_name()
-                ),
-                Style::default().fg(Color::Yellow),
-            ),
-            DisplayAppState::NotRunning => Line::styled(
-                format!(
-                    "{} 当前未运行；确认后将启动并接入日志",
-                    selected_app.display_name()
-                ),
-                Style::default().fg(Color::DarkGray),
-            ),
-        };
+        let (notice_text, notice_style) = selected_notice(selected_app, selected_state);
+        let notice = Line::styled(notice_text, notice_style);
         let footer = Paragraph::new(vec![
             notice,
             Line::styled(
-                "↑/↓ 或 j/k 选择 · Enter 确认 · 鼠标点击选择 · Esc/q 退出",
+                format!("{CONTENT_INDENT}↑/↓ 或 j/k 选择 · Enter 确认 · 鼠标点击选择 · Esc/q 退出"),
                 Style::default().fg(Color::DarkGray),
             ),
         ])
-        .alignment(Alignment::Center);
+        .alignment(Alignment::Left);
         frame.render_widget(footer, footer_area);
     })?;
     Ok(list_area)
@@ -398,6 +431,8 @@ mod tests {
     fn keyboard_navigation_requires_confirmation() {
         let mut state = PickerState::new();
         let area = Rect::new(10, 5, 30, 2);
+        state.update_app_state(IosApp::EffectCam, DisplayAppState::NotRunning);
+        state.update_app_state(IosApp::Douyin, DisplayAppState::NotRunning);
 
         assert_eq!(
             state.handle_event(
@@ -429,6 +464,7 @@ mod tests {
     fn mouse_click_selects_the_clicked_app() {
         let mut state = PickerState::new();
         let area = Rect::new(10, 5, 30, 2);
+        state.update_app_state(IosApp::Douyin, DisplayAppState::NotRunning);
         let click = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
             column: 12,
@@ -450,5 +486,41 @@ mod tests {
 
         assert_eq!(state.app_states[0], DisplayAppState::Checking);
         assert_eq!(state.app_states[1], DisplayAppState::Running);
+    }
+
+    #[test]
+    fn app_statuses_start_in_the_same_terminal_column() {
+        let effectcam = app_row(IosApp::EffectCam, DisplayAppState::Running);
+        let douyin = app_row(IosApp::Douyin, DisplayAppState::Running);
+        let effectcam_separator = effectcam.find('·').unwrap();
+        let douyin_separator = douyin.find('·').unwrap();
+
+        assert_eq!(
+            effectcam[..effectcam_separator].width(),
+            douyin[..douyin_separator].width()
+        );
+    }
+
+    #[test]
+    fn contextual_notice_uses_the_same_indent_as_list_content() {
+        let (notice, _) = selected_notice(IosApp::EffectCam, DisplayAppState::Running);
+
+        assert!(notice.starts_with(CONTENT_INDENT));
+        assert_eq!(CONTENT_INDENT.width(), 2);
+    }
+
+    #[test]
+    fn checking_and_uninstalled_apps_cannot_be_confirmed() {
+        let mut state = PickerState::new();
+        let area = Rect::new(10, 5, 30, 2);
+        let enter = Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert_eq!(
+            state.handle_event(enter.clone(), area),
+            PickerAction::Continue
+        );
+
+        state.update_app_state(IosApp::EffectCam, DisplayAppState::NotInstalled);
+        assert_eq!(state.handle_event(enter, area), PickerAction::Continue);
     }
 }

@@ -191,15 +191,24 @@ fn usb_device_is_attached(udid: &str) -> Option<bool> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IosAppState {
-    Running,
-    NotRunning,
+    ProcessPresent,
+    NoProcess,
     NotInstalled,
+}
+
+fn installed_app_url(document: &Value) -> Option<&str> {
+    document
+        .pointer("/result/apps")
+        .and_then(Value::as_array)
+        .and_then(|apps| apps.first())
+        .and_then(|app| app.get("url"))
+        .and_then(Value::as_str)
 }
 
 /// Report whether an installed App currently has a process on the device.
 ///
-/// `Running` includes foreground, background, and suspended processes. It does
-/// not imply that the App is visible or that Lazylog launched it.
+/// `ProcessPresent` includes foreground, background, and suspended processes.
+/// It does not imply that the App is visible or that Lazylog launched it.
 pub fn app_state(device: &str, bundle_id: &str) -> Result<IosAppState> {
     let apps = run_devicectl_json(
         &[
@@ -213,13 +222,7 @@ pub fn app_state(device: &str, bundle_id: &str) -> Result<IosAppState> {
         ],
         "app-status",
     )?;
-    let Some(app_url) = apps
-        .pointer("/result/apps")
-        .and_then(Value::as_array)
-        .and_then(|apps| apps.first())
-        .and_then(|app| app.get("url"))
-        .and_then(Value::as_str)
-    else {
+    let Some(app_url) = installed_app_url(&apps) else {
         return Ok(IosAppState::NotInstalled);
     };
 
@@ -239,16 +242,16 @@ pub fn app_state(device: &str, bundle_id: &str) -> Result<IosAppState> {
             })
         });
     Ok(if is_running {
-        IosAppState::Running
+        IosAppState::ProcessPresent
     } else {
-        IosAppState::NotRunning
+        IosAppState::NoProcess
     })
 }
 
 fn query_app_running(device: &str, bundle_id: &str) -> Result<bool> {
     Ok(matches!(
         app_state(device, bundle_id)?,
-        IosAppState::Running
+        IosAppState::ProcessPresent
     ))
 }
 
@@ -749,6 +752,14 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn empty_app_result_is_recognized_as_not_installed() {
+        let document: Value =
+            serde_json::from_str(r#"{"info":{"outcome":"success"},"result":{"apps":[]}}"#).unwrap();
+
+        assert_eq!(installed_app_url(&document), None);
     }
 
     #[test]

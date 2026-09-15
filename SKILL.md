@@ -100,9 +100,10 @@ App so its standard streams can be attached. Use it only on a development or tes
 unredacted output can contain credentials and user data.
 
 The iOS App picker detects whether each App already has a process, regardless of who launched it.
-It cannot distinguish foreground from background/suspended state. If the highlighted App is
-running, the picker explicitly warns that confirmation will terminate the existing process before
-relaunching it for console attachment.
+It cannot distinguish foreground from background/suspended state and therefore labels this as an
+existing process rather than saying the App is running. If the highlighted App has a process, the
+picker explicitly warns that confirmation will terminate it before relaunching the App for console
+attachment. A missing bundle ID is shown as not installed and cannot be confirmed.
 
 ## Behavior
 

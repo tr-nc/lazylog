@@ -698,6 +698,7 @@ dependencies = [
  "lazylog-ios",
  "ratatui",
  "signal-hook",
+ "unicode-width 0.2.0",
 ]
 
 [[package]]
