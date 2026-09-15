@@ -42,7 +42,7 @@ impl IosApp {
         match value.to_ascii_lowercase().as_str() {
             "effectcam" | "xiangsu" => Ok(Self::EffectCam),
             "douyin" | "aweme" => Ok(Self::Douyin),
-            _ if value == "像塑" => Ok(Self::EffectCam),
+            _ if value == "像塑" || value == "像塑内测版" => Ok(Self::EffectCam),
             _ if value == "抖音" => Ok(Self::Douyin),
             _ => Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -60,7 +60,7 @@ impl IosApp {
 
     pub(crate) fn display_name(self) -> &'static str {
         match self {
-            Self::EffectCam => "像塑",
+            Self::EffectCam => "像塑内测版",
             Self::Douyin => "抖音开发版",
         }
     }
@@ -304,13 +304,7 @@ impl PickerState {
         let Some(device) = self.selected_device.clone() else {
             return PickerAction::Continue;
         };
-        let Some(index) = APPS.iter().position(|candidate| *candidate == app) else {
-            return PickerAction::Continue;
-        };
-        if self
-            .app_availability
-            .is_none_or(|availability| availability[index] != DisplayAvailability::Installed)
-        {
+        if !APPS.contains(&app) {
             return PickerAction::Continue;
         }
         self.selected_app = Some(app);
@@ -589,15 +583,22 @@ fn visible_offset(state: &PickerState, list_area: Rect) -> usize {
         .unwrap_or(0)
 }
 
-fn app_row(app: IosApp, state: DisplayAvailability) -> String {
+fn app_row(app: IosApp, availability: Option<DisplayAvailability>) -> String {
     let identity = format!("{}  ({})", app.display_name(), app.subtitle());
+    let Some(availability) = availability else {
+        return identity;
+    };
     let identity_column_width = APPS
         .iter()
         .map(|app| format!("{}  ({})", app.display_name(), app.subtitle()).width())
         .max()
         .unwrap_or_default();
     let padding = identity_column_width.saturating_sub(identity.width()) + 2;
-    format!("{identity}{}· {}", " ".repeat(padding), state.label())
+    format!(
+        "{identity}{}· {}",
+        " ".repeat(padding),
+        availability.label()
+    )
 }
 
 fn selected_app_notice(state: &PickerState) -> (String, Style) {
@@ -611,8 +612,11 @@ fn selected_app_notice(state: &PickerState) -> (String, Style) {
     let app = APPS[state.highlighted_app];
     let Some(availability) = state.app_availability else {
         return (
-            format!("{CONTENT_INDENT}正在检测已安装的 APP…"),
-            Style::default().fg(Color::DarkGray),
+            format!(
+                "{CONTENT_INDENT}确认后将重新启动 {}；安装状态正在后台检测",
+                app.display_name()
+            ),
+            Style::default().fg(Color::Yellow),
         );
     };
 
@@ -625,12 +629,18 @@ fn selected_app_notice(state: &PickerState) -> (String, Style) {
             Style::default().fg(Color::Yellow),
         ),
         DisplayAvailability::NotInstalled => (
-            format!("{CONTENT_INDENT}{} 未安装在当前设备上", app.display_name()),
+            format!(
+                "{CONTENT_INDENT}提示：{} 未安装；确认后仍会尝试启动",
+                app.display_name()
+            ),
             Style::default().fg(Color::Red),
         ),
         DisplayAvailability::DetectionFailed => (
-            format!("{CONTENT_INDENT}无法检测 {} 是否已安装", app.display_name()),
-            Style::default().fg(Color::Red),
+            format!(
+                "{CONTENT_INDENT}安装状态检测失败；确认后仍会尝试启动 {}",
+                app.display_name()
+            ),
+            Style::default().fg(Color::Yellow),
         ),
     }
 }
@@ -713,11 +723,13 @@ fn draw_picker(
                             .style(Style::default().fg(Color::DarkGray)),
                         list_area,
                     );
-                } else if let Some(availability) = state.app_availability {
-                    let items = APPS
-                        .iter()
-                        .enumerate()
-                        .map(|(index, app)| ListItem::new(app_row(*app, availability[index])));
+                } else {
+                    let items = APPS.iter().enumerate().map(|(index, app)| {
+                        ListItem::new(app_row(
+                            *app,
+                            state.app_availability.map(|values| values[index]),
+                        ))
+                    });
                     let list = List::new(items).highlight_symbol("▶ ").highlight_style(
                         Style::default()
                             .fg(Color::Yellow)
@@ -726,13 +738,6 @@ fn draw_picker(
                     let mut list_state =
                         ListState::default().with_selected(Some(state.highlighted_app));
                     frame.render_stateful_widget(list, list_area, &mut list_state);
-                } else {
-                    frame.render_widget(
-                        Paragraph::new("正在检测已安装的 APP…")
-                            .alignment(Alignment::Center)
-                            .style(Style::default().fg(Color::DarkGray)),
-                        list_area,
-                    );
                 }
             }
         }
@@ -984,23 +989,46 @@ mod tests {
     }
 
     #[test]
-    fn app_cannot_be_confirmed_without_device_or_installation() {
+    fn app_cannot_be_confirmed_without_a_device() {
         let mut state = PickerState::ios(None, None);
 
         assert_eq!(state.commit_app(IosApp::EffectCam), PickerAction::Continue);
+    }
 
-        state.selected_device = Some("one".to_string());
+    #[test]
+    fn preset_app_can_be_confirmed_before_installation_hint_arrives() {
+        let mut state = PickerState::ios(Some("one".to_string()), None);
+
+        assert_eq!(
+            state.commit_app(IosApp::EffectCam),
+            PickerAction::CompleteIos(IosSelection {
+                device: "one".to_string(),
+                app: IosApp::EffectCam,
+            })
+        );
+    }
+
+    #[test]
+    fn installation_hint_never_disables_a_preset_app() {
+        let mut state = PickerState::ios(Some("one".to_string()), None);
+
         state.app_availability = Some([
             DisplayAvailability::NotInstalled,
             DisplayAvailability::Installed,
         ]);
-        assert_eq!(state.commit_app(IosApp::EffectCam), PickerAction::Continue);
+        assert!(matches!(
+            state.commit_app(IosApp::EffectCam),
+            PickerAction::CompleteIos(_)
+        ));
 
         state.app_availability = Some([
             DisplayAvailability::DetectionFailed,
             DisplayAvailability::Installed,
         ]);
-        assert_eq!(state.commit_app(IosApp::EffectCam), PickerAction::Continue);
+        assert!(matches!(
+            state.commit_app(IosApp::EffectCam),
+            PickerAction::CompleteIos(_)
+        ));
     }
 
     #[test]
@@ -1028,8 +1056,8 @@ mod tests {
 
     #[test]
     fn app_statuses_start_in_the_same_terminal_column() {
-        let effectcam = app_row(IosApp::EffectCam, DisplayAvailability::Installed);
-        let douyin = app_row(IosApp::Douyin, DisplayAvailability::Installed);
+        let effectcam = app_row(IosApp::EffectCam, Some(DisplayAvailability::Installed));
+        let douyin = app_row(IosApp::Douyin, Some(DisplayAvailability::Installed));
         let effectcam_separator = effectcam.find('·').unwrap();
         let douyin_separator = douyin.find('·').unwrap();
 
@@ -1037,5 +1065,11 @@ mod tests {
             effectcam[..effectcam_separator].width(),
             douyin[..douyin_separator].width()
         );
+    }
+
+    #[test]
+    fn preset_app_rows_exist_before_availability_hint_arrives() {
+        assert_eq!(app_row(IosApp::EffectCam, None), "像塑内测版  (EffectCam)");
+        assert_eq!(app_row(IosApp::Douyin, None), "抖音开发版  (Douyin)");
     }
 }
