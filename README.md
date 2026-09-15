@@ -60,20 +60,23 @@ cargo build --release
 ### Basic usage
 
 ```bash
+# Open the interactive Provider picker
+cargo run --
+
 # Run lazylog with DYEH preview logs
 cargo run -- --dyeh-preview
 
 # Use DYEH editor logs
 cargo run -- --dyeh-editor
 
-# Choose an iOS device, then EffectCam or Douyin (EffectCam is initially highlighted)
+# Skip Provider selection and choose an iOS device, then an App
 cargo run -- --ios
 
 # Select the device interactively but skip the iOS App picker
 cargo run -- --ios --ios-app effectcam
 cargo run -- --ios --ios-app douyin
 
-# Choose an Android device and use its effect logs (there is no App picker)
+# Skip Provider selection and choose an Android device
 cargo run -- --android
 
 # Apply filter on startup
@@ -135,16 +138,18 @@ unplugged USB cable, a disconnected device, an exited target App, and a failed c
 Android reports device disconnects and capture failures; because its current source is global
 `adb logcat`, it cannot reliably infer that one particular App exited.
 
-Interactive mobile sessions share the same device picker. The picker refreshes automatically and
-highlights its first device by default. Android proceeds directly from device selection to logs.
-iOS adds a second, iOS-only App picker. If an iOS target App exits, Lazylog returns to the App
-picker while retaining the selected device. If the selected iOS or Android device disconnects,
-Lazylog returns to the device picker. Pressing `q` in the log viewer or either picker exits Lazylog.
-The iOS App picker also reports whether each App has an existing process. This does not imply that
-the App is visible: the process may be in the background or suspended. When a process exists for
-the highlighted App, the picker warns that confirming will terminate it and relaunch the App so
-`devicectl` can attach its console. Apps missing from the selected device are marked as not
-installed and cannot be confirmed.
+Interactive sessions use one progressive picker. Its Provider tab lists iOS, Android, DYEH
+preview, and DYEH editor. iOS then exposes Device and App tabs; Android exposes Device; DYEH needs
+no additional selection. Switching an earlier selection invalidates dependent later selections.
+All picker lists can be controlled with arrow keys or the mouse, and the picker refreshes device
+and iOS App availability hints in the background.
+
+If an iOS target App exits, Lazylog returns to the App tab while retaining the selected device. If
+the selected iOS or Android device disconnects, Lazylog returns to the Device tab. From a log view,
+press `Esc` twice within 500ms to return to the picker; press `q` anywhere to exit Lazylog. The iOS
+App list reports installed, not installed, or detection failed as a hint. A preset App remains
+selectable in all three states, and confirming it asks `devicectl` to terminate any existing
+process and relaunch the App with its console attached.
 
 The generated capture path is stored under the platform-local data directory in
 `lazylog/captures`. A complete capture means everything Lazylog observed during that invocation;
@@ -169,7 +174,8 @@ live providers do not necessarily include logs from before startup.
 | `b`                  | Toggle debug logs visibility                       |
 | `1`/`2`/`3`          | Focus logs/details/debug panel                     |
 | `?`                  | Show/hide help popup                               |
-| `Esc`                | Exit visual mode / Go back / Clear filter          |
+| `Esc`                | Exit visual mode / Clear filter                     |
+| `Esc` twice in 500ms | Return from a log view to the picker                |
 | `q`                  | Quit                                               |
 | `Ctrl+C`             | Quit                                               |
 | Mouse scroll         | Vertical scrolling through logs or focused panel   |
