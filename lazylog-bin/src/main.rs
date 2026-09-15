@@ -25,7 +25,7 @@ use ratatui::{
 use std::env;
 use std::io;
 use std::panic;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;
 use std::thread;
@@ -42,10 +42,9 @@ fn print_usage() {
     eprintln!("  --ios-app <APP>         iOS app: effectcam or douyin");
     eprintln!("  --android               Use Android log provider [EFFECT MODE]");
     eprintln!("  --headless              Stream logs to stdout without the TUI");
-    eprintln!("  --agent                 Capture complete logs with bounded stdout preview");
-    eprintln!("  --capture-file <PATH>   Agent capture path (must not already exist)");
-    eprintln!("  --preview-lines <N>     Agent stdout line limit (default: 500)");
-    eprintln!("  --preview-bytes <N>     Agent stdout byte limit (default: 65536)");
+    eprintln!(
+        "  --agent                 Capture all logs to a unique temporary file (stdout stays empty)"
+    );
     eprintln!("  --duration <SECONDS>    Stop agent capture after the given duration");
     eprintln!("  --filter, -f <QUERY>    Apply filter on startup");
     eprintln!("  --version, -v           Print version information");
@@ -177,24 +176,11 @@ fn duplicate_option(option: &str) -> io::Error {
     )
 }
 
-fn parse_usize_option(value: &str, option: &str) -> Result<usize, io::Error> {
-    value.parse::<usize>().map_err(|_| {
-        print_usage();
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("Invalid value for {option}: {value}"),
-        )
-    })
-}
-
 impl CliOptions {
     fn from_args(args: &[String]) -> Result<Self, io::Error> {
         let mut usage_option = UsageOptions::None;
         let mut headless = false;
         let mut agent_requested = false;
-        let mut capture_file = None;
-        let mut preview_lines = None;
-        let mut preview_bytes = None;
         let mut duration_seconds = None;
         let mut initial_filter = None;
         let mut ios_app = None;
@@ -240,25 +226,15 @@ impl CliOptions {
                 }
                 "--headless" => headless = true,
                 "--agent" => agent_requested = true,
-                "--capture-file" => {
-                    let value = take_option_value(args, &mut i, "--capture-file")?;
-                    if capture_file.replace(PathBuf::from(value)).is_some() {
-                        return Err(duplicate_option("--capture-file"));
-                    }
-                }
-                "--preview-lines" => {
-                    let value = take_option_value(args, &mut i, "--preview-lines")?;
-                    let value = parse_usize_option(value, "--preview-lines")?;
-                    if preview_lines.replace(value).is_some() {
-                        return Err(duplicate_option("--preview-lines"));
-                    }
-                }
-                "--preview-bytes" => {
-                    let value = take_option_value(args, &mut i, "--preview-bytes")?;
-                    let value = parse_usize_option(value, "--preview-bytes")?;
-                    if preview_bytes.replace(value).is_some() {
-                        return Err(duplicate_option("--preview-bytes"));
-                    }
+                "--capture-file" | "--preview-lines" | "--preview-bytes" => {
+                    print_usage();
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!(
+                            "{} was removed; --agent always writes complete logs to a unique temporary file and never writes logs to stdout",
+                            args[i]
+                        ),
+                    ));
                 }
                 "--duration" => {
                     let value = take_option_value(args, &mut i, "--duration")?;
@@ -311,6 +287,14 @@ impl CliOptions {
                 ));
             }
 
+            if agent_requested && initial_filter.is_some() {
+                print_usage();
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "--filter is not supported with --agent; capture all logs, then search the temporary capture file",
+                ));
+            }
+
             if (headless || agent_requested) && matches!(usage_option, UsageOptions::None) {
                 print_usage();
                 return Err(io::Error::new(
@@ -330,23 +314,16 @@ impl CliOptions {
                 ));
             }
 
-            let has_agent_only_option = capture_file.is_some()
-                || preview_lines.is_some()
-                || preview_bytes.is_some()
-                || duration_seconds.is_some();
-            if has_agent_only_option && !agent_requested {
+            if duration_seconds.is_some() && !agent_requested {
                 print_usage();
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    "--capture-file, --preview-lines, --preview-bytes, and --duration require --agent",
+                    "--duration requires --agent",
                 ));
             }
         }
 
         let agent = agent_requested.then(|| AgentOptions {
-            capture_file,
-            preview_lines: preview_lines.unwrap_or(agent::DEFAULT_PREVIEW_LINES),
-            preview_bytes: preview_bytes.unwrap_or(agent::DEFAULT_PREVIEW_BYTES),
             duration: duration_seconds.map(Duration::from_secs),
         });
 
@@ -574,7 +551,7 @@ where
     P: LogProvider,
 {
     match agent_options {
-        Some(options) => run_agent(provider, parser, initial_filter, poll_interval, options),
+        Some(options) => run_agent(provider, parser, poll_interval, options),
         None => run_headless(provider, parser, initial_filter, poll_interval),
     }
 }
@@ -751,53 +728,62 @@ mod tests {
     }
 
     #[test]
-    fn agent_options_use_bounded_defaults() {
+    fn agent_options_default_to_unbounded_duration() {
         let options = CliOptions::from_args(&args(&["--agent", "--dyeh-preview"])).unwrap();
         let agent = options.agent.unwrap();
 
         assert!(!options.headless);
-        assert_eq!(agent.preview_lines, agent::DEFAULT_PREVIEW_LINES);
-        assert_eq!(agent.preview_bytes, agent::DEFAULT_PREVIEW_BYTES);
-        assert!(agent.capture_file.is_none());
         assert!(agent.duration.is_none());
     }
 
     #[test]
-    fn agent_options_accept_capture_preview_and_duration_overrides() {
-        let options = CliOptions::from_args(&args(&[
-            "--agent",
-            "--dyeh-editor",
-            "--capture-file",
-            "capture.log",
-            "--preview-lines",
-            "12",
-            "--preview-bytes",
-            "345",
-            "--duration",
-            "6",
-        ]))
-        .unwrap();
+    fn agent_options_accept_duration() {
+        let options =
+            CliOptions::from_args(&args(&["--agent", "--dyeh-editor", "--duration", "6"])).unwrap();
         let agent = options.agent.unwrap();
 
-        assert_eq!(agent.capture_file, Some(PathBuf::from("capture.log")));
-        assert_eq!(agent.preview_lines, 12);
-        assert_eq!(agent.preview_bytes, 345);
         assert_eq!(agent.duration, Some(Duration::from_secs(6)));
     }
 
     #[test]
-    fn agent_only_options_require_agent_mode() {
-        let error = CliOptions::from_args(&args(&[
-            "--headless",
-            "--dyeh-preview",
-            "--preview-lines",
-            "10",
-        ]))
-        .err()
-        .unwrap();
+    fn duration_requires_agent_mode() {
+        let error =
+            CliOptions::from_args(&args(&["--headless", "--dyeh-preview", "--duration", "10"]))
+                .err()
+                .unwrap();
 
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
-        assert!(error.to_string().contains("require --agent"));
+        assert!(error.to_string().contains("--duration requires --agent"));
+    }
+
+    #[test]
+    fn agent_rejects_filter_in_either_argument_order() {
+        for values in [
+            ["--agent", "--dyeh-preview", "--filter", "ERROR"],
+            ["--filter", "ERROR", "--agent", "--dyeh-preview"],
+        ] {
+            let error = CliOptions::from_args(&args(&values)).err().unwrap();
+
+            assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+            assert!(
+                error
+                    .to_string()
+                    .contains("--filter is not supported with --agent")
+            );
+        }
+    }
+
+    #[test]
+    fn removed_agent_output_options_explain_temporary_capture() {
+        for option in ["--capture-file", "--preview-lines", "--preview-bytes"] {
+            let error = CliOptions::from_args(&args(&["--agent", "--dyeh-preview", option]))
+                .err()
+                .unwrap();
+
+            assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+            assert!(error.to_string().contains("was removed"));
+            assert!(error.to_string().contains("temporary file"));
+        }
     }
 
     #[test]

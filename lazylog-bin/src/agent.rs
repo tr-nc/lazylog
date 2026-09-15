@@ -15,62 +15,29 @@ use std::sync::{
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-pub(crate) const DEFAULT_PREVIEW_LINES: usize = 500;
-pub(crate) const DEFAULT_PREVIEW_BYTES: usize = 64 * 1024;
-
+#[derive(Default)]
 pub(crate) struct AgentOptions {
-    pub(crate) capture_file: Option<PathBuf>,
-    pub(crate) preview_lines: usize,
-    pub(crate) preview_bytes: usize,
     pub(crate) duration: Option<Duration>,
 }
 
-impl Default for AgentOptions {
-    fn default() -> Self {
-        Self {
-            capture_file: None,
-            preview_lines: DEFAULT_PREVIEW_LINES,
-            preview_bytes: DEFAULT_PREVIEW_BYTES,
-            duration: None,
-        }
-    }
-}
-
-enum PreviewEvent {
-    LimitReached,
-    WriteFailed(io::Error),
-}
-
-struct AgentOutput<C, P> {
+struct AgentOutput<C> {
     capture: C,
-    preview: P,
-    max_preview_lines: usize,
-    max_preview_bytes: usize,
-    preview_lines: usize,
-    preview_bytes: usize,
     captured_items: usize,
     captured_lines: usize,
     captured_bytes: usize,
-    preview_disabled: bool,
 }
 
-impl<C: Write, P: Write> AgentOutput<C, P> {
-    fn new(capture: C, preview: P, max_preview_lines: usize, max_preview_bytes: usize) -> Self {
+impl<C: Write> AgentOutput<C> {
+    fn new(capture: C) -> Self {
         Self {
             capture,
-            preview,
-            max_preview_lines,
-            max_preview_bytes,
-            preview_lines: 0,
-            preview_bytes: 0,
             captured_items: 0,
             captured_lines: 0,
             captured_bytes: 0,
-            preview_disabled: false,
         }
     }
 
-    fn write_item(&mut self, content: &str) -> io::Result<Option<PreviewEvent>> {
+    fn write_item(&mut self, content: &str) -> io::Result<()> {
         let item_lines = physical_line_count(content);
         let item_bytes = content.len().saturating_add(1);
 
@@ -79,31 +46,7 @@ impl<C: Write, P: Write> AgentOutput<C, P> {
         self.captured_items = self.captured_items.saturating_add(1);
         self.captured_lines = self.captured_lines.saturating_add(item_lines);
         self.captured_bytes = self.captured_bytes.saturating_add(item_bytes);
-
-        if self.preview_disabled {
-            return Ok(None);
-        }
-
-        let exceeds_lines = self.preview_lines.saturating_add(item_lines) > self.max_preview_lines;
-        let exceeds_bytes = self.preview_bytes.saturating_add(item_bytes) > self.max_preview_bytes;
-        if exceeds_lines || exceeds_bytes {
-            self.preview_disabled = true;
-            return Ok(Some(PreviewEvent::LimitReached));
-        }
-
-        if let Err(error) = self
-            .preview
-            .write_all(content.as_bytes())
-            .and_then(|_| self.preview.write_all(b"\n"))
-            .and_then(|_| self.preview.flush())
-        {
-            self.preview_disabled = true;
-            return Ok(Some(PreviewEvent::WriteFailed(error)));
-        }
-
-        self.preview_lines += item_lines;
-        self.preview_bytes += item_bytes;
-        Ok(None)
+        Ok(())
     }
 
     fn flush_capture(&mut self) -> io::Result<()> {
@@ -111,11 +54,7 @@ impl<C: Write, P: Write> AgentOutput<C, P> {
     }
 
     fn finish(&mut self) -> io::Result<()> {
-        self.capture.flush()?;
-        if !self.preview_disabled {
-            let _ = self.preview.flush();
-        }
-        Ok(())
+        self.capture.flush()
     }
 }
 
@@ -126,14 +65,6 @@ fn physical_line_count(content: &str) -> usize {
         .filter(|byte| **byte == b'\n')
         .count()
         .saturating_add(1)
-}
-
-fn absolute_path(path: &Path) -> io::Result<PathBuf> {
-    if path.is_absolute() {
-        Ok(path.to_path_buf())
-    } else {
-        Ok(std::env::current_dir()?.join(path))
-    }
 }
 
 fn open_new_capture(path: &Path) -> io::Result<File> {
@@ -150,17 +81,8 @@ fn open_new_capture(path: &Path) -> io::Result<File> {
     options.open(path)
 }
 
-fn create_capture_file(requested_path: Option<&Path>) -> io::Result<(PathBuf, File)> {
-    if let Some(path) = requested_path {
-        let path = absolute_path(path)?;
-        let file = open_new_capture(&path)?;
-        return Ok((path, file));
-    }
-
-    let capture_dir = dirs::data_local_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("lazylog")
-        .join("captures");
+fn create_capture_file() -> io::Result<(PathBuf, File)> {
+    let capture_dir = std::env::temp_dir().join("lazylog").join("agent-captures");
     fs::create_dir_all(&capture_dir)?;
 
     let timestamp = SystemTime::now()
@@ -175,7 +97,9 @@ fn create_capture_file(requested_path: Option<&Path>) -> io::Result<(PathBuf, Fi
         } else {
             format!("-{suffix}")
         };
-        let path = capture_dir.join(format!("lazylog-{timestamp}-{process_id}{suffix}.log"));
+        let path = capture_dir.join(format!(
+            "lazylog-agent-{timestamp}-{process_id}{suffix}.log"
+        ));
         match open_new_capture(&path) {
             Ok(file) => return Ok((path, file)),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
@@ -213,34 +137,16 @@ fn install_stop_signals() -> io::Result<(Arc<AtomicBool>, SignalRegistrations)> 
     Ok((stop, registrations))
 }
 
-fn capture_batch<C: Write, P: Write>(
+fn capture_batch<C: Write>(
     raw_logs: Vec<String>,
     parser: &Arc<dyn LogParser>,
-    initial_filter: Option<&str>,
-    output: &mut AgentOutput<C, P>,
-    capture_path: &Path,
+    output: &mut AgentOutput<C>,
 ) -> io::Result<()> {
     for raw_log in raw_logs {
         let Some(item) = parser.parse(&raw_log) else {
             continue;
         };
-        if !super::matches_filter(parser, &item, initial_filter) {
-            continue;
-        }
-
-        match output.write_item(&item.raw_content)? {
-            Some(PreviewEvent::LimitReached) => eprintln!(
-                "[lazylog] preview limit reached after {} lines / {} bytes; capture continues at {}",
-                output.preview_lines,
-                output.preview_bytes,
-                capture_path.display()
-            ),
-            Some(PreviewEvent::WriteFailed(error)) => eprintln!(
-                "[lazylog] stdout preview disabled after write error: {error}; capture continues at {}",
-                capture_path.display()
-            ),
-            None => {}
-        }
+        output.write_item(&item.raw_content)?;
     }
 
     output.flush_capture()
@@ -267,22 +173,15 @@ fn report_provider_status<P: LogProvider>(provider: &P, previous: &mut Option<Pr
 pub(crate) fn run_agent<P>(
     mut provider: P,
     parser: Arc<dyn LogParser>,
-    initial_filter: Option<&str>,
     poll_interval: Duration,
     options: &AgentOptions,
 ) -> io::Result<()>
 where
     P: LogProvider,
 {
-    let (capture_path, capture_file) = create_capture_file(options.capture_file.as_deref())?;
+    let (capture_path, capture_file) = create_capture_file()?;
     let (stop, _signal_registrations) = install_stop_signals()?;
-    let stdout = io::stdout();
-    let mut output = AgentOutput::new(
-        BufWriter::new(capture_file),
-        stdout.lock(),
-        options.preview_lines,
-        options.preview_bytes,
-    );
+    let mut output = AgentOutput::new(BufWriter::new(capture_file));
 
     eprintln!("[lazylog] complete capture: {}", capture_path.display());
     provider.start().map_err(io::Error::other)?;
@@ -299,13 +198,7 @@ where
     {
         match provider.poll_logs() {
             Ok(raw_logs) => {
-                if let Err(error) = capture_batch(
-                    raw_logs,
-                    &parser,
-                    initial_filter,
-                    &mut output,
-                    &capture_path,
-                ) {
+                if let Err(error) = capture_batch(raw_logs, &parser, &mut output) {
                     first_error = Some(error);
                     break;
                 }
@@ -333,13 +226,7 @@ where
         match provider.poll_logs() {
             Ok(raw_logs) => remember_first_error(
                 &mut first_error,
-                capture_batch(
-                    raw_logs,
-                    &parser,
-                    initial_filter,
-                    &mut output,
-                    &capture_path,
-                ),
+                capture_batch(raw_logs, &parser, &mut output),
             ),
             Err(error) => eprintln!("Provider final poll error: {error}"),
         }
@@ -373,34 +260,31 @@ mod tests {
     }
 
     #[test]
-    fn preview_stops_at_line_limit_but_capture_continues() {
-        let mut output = AgentOutput::new(Vec::new(), Vec::new(), 2, usize::MAX);
+    fn output_captures_every_item_without_a_preview_sink() {
+        let mut output = AgentOutput::new(Vec::new());
 
-        assert!(output.write_item("one\ntwo").unwrap().is_none());
-        assert!(matches!(
-            output.write_item("three").unwrap(),
-            Some(PreviewEvent::LimitReached)
-        ));
-        assert!(output.write_item("four").unwrap().is_none());
+        output.write_item("one\ntwo").unwrap();
+        output.write_item("three").unwrap();
+        output.write_item("four").unwrap();
         output.finish().unwrap();
 
         assert_eq!(output.capture, b"one\ntwo\nthree\nfour\n");
-        assert_eq!(output.preview, b"one\ntwo\n");
         assert_eq!(output.captured_items, 3);
         assert_eq!(output.captured_lines, 4);
+        assert_eq!(output.captured_bytes, 19);
     }
 
     #[test]
-    fn preview_stops_before_exceeding_byte_limit() {
-        let mut output = AgentOutput::new(Vec::new(), Vec::new(), usize::MAX, 4);
+    fn every_capture_uses_a_unique_os_temporary_file() {
+        let (first_path, first_file) = create_capture_file().unwrap();
+        let (second_path, second_file) = create_capture_file().unwrap();
+        drop((first_file, second_file));
 
-        assert!(output.write_item("abc").unwrap().is_none());
-        assert!(matches!(
-            output.write_item("d").unwrap(),
-            Some(PreviewEvent::LimitReached)
-        ));
+        assert_ne!(first_path, second_path);
+        assert!(first_path.starts_with(std::env::temp_dir().join("lazylog/agent-captures")));
+        assert!(second_path.starts_with(std::env::temp_dir().join("lazylog/agent-captures")));
 
-        assert_eq!(output.capture, b"abc\nd\n");
-        assert_eq!(output.preview, b"abc\n");
+        fs::remove_file(first_path).unwrap();
+        fs::remove_file(second_path).unwrap();
     }
 }
