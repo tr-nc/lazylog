@@ -363,7 +363,13 @@ impl PickerState {
                     TabKind::Device => self.commit_highlighted_device(),
                     TabKind::App => self.commit_app(APPS[self.highlighted_app]),
                 },
-                KeyCode::Esc | KeyCode::Char('q') => PickerAction::Cancel,
+                KeyCode::Esc => {
+                    if self.active_tab > 0 {
+                        self.active_tab -= 1;
+                    }
+                    PickerAction::Continue
+                }
+                KeyCode::Char('q') => PickerAction::Cancel,
                 _ => PickerAction::Continue,
             },
             Event::Mouse(MouseEvent {
@@ -744,9 +750,9 @@ fn draw_picker(
             }
         };
         let controls = if state.tabs.len() > 1 {
-            "←/→ 或 h/l 切换 · ↑/↓ 或 j/k 选择 · Enter 确认 · 鼠标点击 · Esc/q 退出"
+            "←/→ 切换 Tab · ↑/↓ 选择 · Enter 确认 · Esc 返回 · q 退出"
         } else {
-            "↑/↓ 或 j/k 选择 · Enter 确认 · 鼠标点击 · Esc/q 退出"
+            "↑/↓ 选择 · Enter 确认 · q 退出"
         };
         frame.render_widget(
             Paragraph::new(vec![
@@ -888,6 +894,35 @@ mod tests {
 
         state.handle_event(key(KeyCode::Left), &visible);
         assert_eq!(state.active_tab(), TabKind::Device);
+    }
+
+    #[test]
+    fn escape_goes_back_one_tab_but_never_quits() {
+        let mut state = PickerState::ios(None, None);
+        let visible = VisibleAreas::default();
+        state.active_tab = 1;
+
+        assert_eq!(
+            state.handle_event(key(KeyCode::Esc), &visible),
+            PickerAction::Continue
+        );
+        assert_eq!(state.active_tab(), TabKind::Device);
+
+        assert_eq!(
+            state.handle_event(key(KeyCode::Esc), &visible),
+            PickerAction::Continue
+        );
+        assert_eq!(state.active_tab(), TabKind::Device);
+    }
+
+    #[test]
+    fn q_is_the_picker_quit_key() {
+        let mut state = PickerState::ios(None, None);
+
+        assert_eq!(
+            state.handle_event(key(KeyCode::Char('q')), &VisibleAreas::default()),
+            PickerAction::Cancel
+        );
     }
 
     #[test]

@@ -60,6 +60,7 @@ pub struct AppDesc {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AppExitReason {
     UserQuit,
+    UserBack,
     ProviderDisconnected(ProviderDisconnectReason),
 }
 
@@ -133,6 +134,7 @@ where
 struct App {
     is_exiting: bool,
     exit_reason: AppExitReason,
+    has_parent_screen: bool,
     raw_logs: Vec<LogItem>,
     displaying_logs: LogList,
     log_consumer: ringbuf::HeapCons<LogItem>, // receives logs from provider thread
@@ -249,6 +251,7 @@ impl App {
         Self {
             is_exiting: false,
             exit_reason: AppExitReason::UserQuit,
+            has_parent_screen: false,
             raw_logs: Vec::new(),
             displaying_logs: LogList::new(Vec::new()),
             log_consumer: consumer,
@@ -304,6 +307,7 @@ impl App {
         desc: &AppDesc,
         exit_on_provider_disconnect: bool,
     ) -> Result<AppExitReason> {
+        self.has_parent_screen = exit_on_provider_disconnect;
         let poll_interval = desc.poll_interval;
         let event_poll_interval = desc.event_poll_interval;
         let mut last_update_logs = Instant::now();

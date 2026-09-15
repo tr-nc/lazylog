@@ -1,4 +1,4 @@
-use super::{App, DISPLAY_EVENT_DURATION_MS, ScrollbarAxis};
+use super::{App, AppExitReason, DISPLAY_EVENT_DURATION_MS, ScrollbarAxis};
 use crate::provider::{decrement_detail_level, increment_detail_level};
 use anyhow::Result;
 use arboard::Clipboard;
@@ -306,13 +306,15 @@ impl App {
                 Ok(())
             }
             KeyCode::Esc => {
-                // Esc only goes back (never quits)
-                // if filter is active but not focused, clear it
                 if !self.filter_input.is_empty() && !self.filter_focused {
                     self.filter_input.clear();
                     self.apply_filter();
+                } else if self.has_parent_screen {
+                    self.provider_stop_signal
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                    self.exit_reason = AppExitReason::UserBack;
+                    self.is_exiting = true;
                 }
-                // Esc never quits the program
                 Ok(())
             }
             KeyCode::Char('v') => {
@@ -573,6 +575,35 @@ mod tests {
         result.unwrap();
         assert!(!visual_mode);
         assert_eq!(visual_anchor, None);
+    }
+
+    #[test]
+    fn escape_returns_a_mobile_session_to_its_parent_screen() {
+        let desc = AppDesc::new(Arc::new(NoopParser));
+        let mut app = App::new(NoopProvider, desc);
+        app.has_parent_screen = true;
+
+        let result = app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        let exit_reason = app.exit_reason;
+        let is_exiting = app.is_exiting;
+        app.cleanup();
+
+        result.unwrap();
+        assert!(is_exiting);
+        assert_eq!(exit_reason, AppExitReason::UserBack);
+    }
+
+    #[test]
+    fn escape_does_not_exit_a_session_without_a_parent_screen() {
+        let desc = AppDesc::new(Arc::new(NoopParser));
+        let mut app = App::new(NoopProvider, desc);
+
+        let result = app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        let is_exiting = app.is_exiting;
+        app.cleanup();
+
+        result.unwrap();
+        assert!(!is_exiting);
     }
 
     #[test]

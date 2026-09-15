@@ -406,6 +406,7 @@ fn run_interactive_ios(
 
         match exit_reason {
             AppExitReason::UserQuit => return Ok(()),
+            AppExitReason::UserBack => retained_device = Some(device),
             AppExitReason::ProviderDisconnected(ProviderDisconnectReason::TargetExited) => {
                 retained_device = Some(device);
             }
@@ -437,6 +438,7 @@ fn run_interactive_android(
             desc,
         )? {
             AppExitReason::UserQuit => return Ok(()),
+            AppExitReason::UserBack => {}
             AppExitReason::ProviderDisconnected(_) => {}
         }
     }
