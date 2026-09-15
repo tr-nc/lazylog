@@ -196,13 +196,53 @@ pub enum IosAppState {
     NotInstalled,
 }
 
-fn installed_app_url(document: &Value) -> Option<&str> {
+fn installed_app_url<'a>(document: &'a Value, bundle_id: &str) -> Option<&'a str> {
     document
         .pointer("/result/apps")
         .and_then(Value::as_array)
-        .and_then(|apps| apps.first())
+        .and_then(|apps| {
+            apps.iter()
+                .find(|app| app.get("bundleIdentifier").and_then(Value::as_str) == Some(bundle_id))
+        })
         .and_then(|app| app.get("url"))
         .and_then(Value::as_str)
+}
+
+fn app_states_from_documents(
+    apps: &Value,
+    processes: &Value,
+    bundle_ids: &[&str],
+) -> Result<Vec<IosAppState>> {
+    apps.pointer("/result/apps")
+        .and_then(Value::as_array)
+        .ok_or_else(|| anyhow::anyhow!("devicectl returned no installed App list"))?;
+    let processes = processes
+        .pointer("/result/runningProcesses")
+        .and_then(Value::as_array)
+        .ok_or_else(|| anyhow::anyhow!("devicectl returned no process list"))?;
+
+    Ok(bundle_ids
+        .iter()
+        .map(|bundle_id| {
+            let Some(app_url) = installed_app_url(apps, bundle_id) else {
+                return IosAppState::NotInstalled;
+            };
+            let main_process_present = processes.iter().any(|process| {
+                process
+                    .get("executable")
+                    .and_then(Value::as_str)
+                    .and_then(|executable| executable.strip_prefix(app_url))
+                    .is_some_and(|relative_path| {
+                        !relative_path.is_empty() && !relative_path.contains('/')
+                    })
+            });
+            if main_process_present {
+                IosAppState::ProcessPresent
+            } else {
+                IosAppState::NoProcess
+            }
+        })
+        .collect())
 }
 
 /// Report whether an installed App currently has a process on the device.
@@ -210,42 +250,23 @@ fn installed_app_url(document: &Value) -> Option<&str> {
 /// `ProcessPresent` includes foreground, background, and suspended processes.
 /// It does not imply that the App is visible or that Lazylog launched it.
 pub fn app_state(device: &str, bundle_id: &str) -> Result<IosAppState> {
+    app_states(device, &[bundle_id])?
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("No bundle ID was provided"))
+}
+
+/// Report process presence for multiple Apps using one coherent device snapshot.
+pub fn app_states(device: &str, bundle_ids: &[&str]) -> Result<Vec<IosAppState>> {
     let apps = run_devicectl_json(
-        &[
-            "device",
-            "info",
-            "apps",
-            "--device",
-            device,
-            "--bundle-id",
-            bundle_id,
-        ],
+        &["device", "info", "apps", "--device", device],
         "app-status",
     )?;
-    let Some(app_url) = installed_app_url(&apps) else {
-        return Ok(IosAppState::NotInstalled);
-    };
-
     let processes = run_devicectl_json(
         &["device", "info", "processes", "--device", device],
         "process-status",
     )?;
-    let is_running = processes
-        .pointer("/result/runningProcesses")
-        .and_then(Value::as_array)
-        .is_some_and(|processes| {
-            processes.iter().any(|process| {
-                process
-                    .get("executable")
-                    .and_then(Value::as_str)
-                    .is_some_and(|executable| executable.starts_with(app_url))
-            })
-        });
-    Ok(if is_running {
-        IosAppState::ProcessPresent
-    } else {
-        IosAppState::NoProcess
-    })
+    app_states_from_documents(&apps, &processes, bundle_ids)
 }
 
 fn query_app_running(device: &str, bundle_id: &str) -> Result<bool> {
@@ -756,10 +777,49 @@ mod tests {
 
     #[test]
     fn empty_app_result_is_recognized_as_not_installed() {
-        let document: Value =
+        let apps: Value =
             serde_json::from_str(r#"{"info":{"outcome":"success"},"result":{"apps":[]}}"#).unwrap();
+        let processes: Value = serde_json::from_str(
+            r#"{"info":{"outcome":"success"},"result":{"runningProcesses":[]}}"#,
+        )
+        .unwrap();
 
-        assert_eq!(installed_app_url(&document), None);
+        assert_eq!(
+            app_states_from_documents(&apps, &processes, &["com.example.missing"]).unwrap(),
+            vec![IosAppState::NotInstalled]
+        );
+    }
+
+    #[test]
+    fn one_process_snapshot_distinguishes_main_and_extension_processes() {
+        let apps: Value = serde_json::from_str(
+            r#"{
+              "result": {"apps": [{
+                "bundleIdentifier": "com.example.one",
+                "url": "file:///apps/One.app/"
+              }, {
+                "bundleIdentifier": "com.example.two",
+                "url": "file:///apps/Two.app/"
+              }]}
+            }"#,
+        )
+        .unwrap();
+        let processes: Value = serde_json::from_str(
+            r#"{
+              "result": {"runningProcesses": [{
+                "executable": "file:///apps/One.app/PlugIns/Widget.appex/Widget"
+              }, {
+                "executable": "file:///apps/Two.app/Two"
+              }]}
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            app_states_from_documents(&apps, &processes, &["com.example.one", "com.example.two"])
+                .unwrap(),
+            vec![IosAppState::NoProcess, IosAppState::ProcessPresent]
+        );
     }
 
     #[test]

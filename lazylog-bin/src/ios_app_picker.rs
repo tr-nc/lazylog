@@ -1,7 +1,7 @@
 use crossterm::event::{
     self, Event, KeyCode, KeyEventKind, MouseButton, MouseEvent, MouseEventKind,
 };
-use lazylog_ios::{IosAppState, app_state, connected_devices};
+use lazylog_ios::{IosAppState, app_states, connected_devices};
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
@@ -240,15 +240,27 @@ fn spawn_status_worker(device: String) -> (mpsc::Receiver<StatusUpdate>, StatusW
                 return;
             }
 
-            for app in APPS {
-                if worker_stop.load(Ordering::Relaxed) {
-                    return;
+            let bundle_ids = APPS.map(IosApp::bundle_id);
+            match app_states(&device, &bundle_ids) {
+                Ok(states) => {
+                    for (app, state) in APPS.into_iter().zip(states) {
+                        if sender
+                            .send(StatusUpdate::App(app, DisplayAppState::from(state)))
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
                 }
-                let state = app_state(&device, app.bundle_id())
-                    .map(DisplayAppState::from)
-                    .unwrap_or(DisplayAppState::Unknown);
-                if sender.send(StatusUpdate::App(app, state)).is_err() {
-                    return;
+                Err(_) => {
+                    for app in APPS {
+                        if sender
+                            .send(StatusUpdate::App(app, DisplayAppState::Unknown))
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
                 }
             }
 
