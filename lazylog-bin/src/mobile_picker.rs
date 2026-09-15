@@ -11,7 +11,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::Line,
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    widgets::{List, ListItem, ListState, Paragraph},
 };
 use std::io;
 use std::sync::{
@@ -565,13 +565,17 @@ fn android_device_options() -> io::Result<Vec<DeviceOption>> {
 
 fn picker_layout(area: Rect) -> [Rect; 4] {
     Layout::vertical([
-        Constraint::Length(3),
+        Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Fill(1),
         Constraint::Length(3),
     ])
     .margin(2)
     .areas(area)
+}
+
+fn tab_width(tab: TabKind) -> u16 {
+    (tab.title().width() + 2).min(u16::MAX as usize) as u16
 }
 
 fn visible_offset(state: &PickerState, list_area: Rect) -> usize {
@@ -641,10 +645,10 @@ fn draw_picker(
         let tab_constraints = state
             .tabs
             .iter()
-            .map(|_| Constraint::Ratio(1, state.tabs.len() as u32));
-        visible.tabs = Layout::horizontal(tab_constraints)
-            .split(tabs_area)
-            .to_vec();
+            .map(|tab| Constraint::Length(tab_width(*tab)))
+            .chain(std::iter::once(Constraint::Fill(1)));
+        let tab_areas = Layout::horizontal(tab_constraints).split(tabs_area);
+        visible.tabs = tab_areas[..state.tabs.len()].to_vec();
         let offset = visible_offset(state, list_area);
         visible.list = VisibleList {
             area: list_area,
@@ -655,25 +659,16 @@ fn draw_picker(
             let active = index == state.active_tab;
             let style = if active {
                 Style::default()
-                    .fg(Color::Yellow)
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
                     .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::DarkGray)
             };
-            let border_style = if active {
-                Style::default().fg(Color::Cyan)
-            } else {
-                Style::default().fg(Color::DarkGray)
-            };
             frame.render_widget(
-                Paragraph::new(tab.title())
-                    .alignment(Alignment::Center)
-                    .style(style)
-                    .block(
-                        Block::default()
-                            .borders(Borders::ALL)
-                            .border_style(border_style),
-                    ),
+                Paragraph::new(format!(" {} ", tab.title()))
+                    .alignment(Alignment::Left)
+                    .style(style),
                 *area,
             );
         }
@@ -872,6 +867,12 @@ mod tests {
 
         assert_eq!(state.tabs, vec![TabKind::Device, TabKind::App]);
         assert_eq!(state.active_tab(), TabKind::Device);
+    }
+
+    #[test]
+    fn tabs_are_compact_with_one_cell_horizontal_padding() {
+        assert_eq!(tab_width(TabKind::Device), 6);
+        assert_eq!(tab_width(TabKind::App), 5);
     }
 
     #[test]
