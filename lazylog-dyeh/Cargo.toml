@@ -2,6 +2,7 @@
 name = "lazylog-dyeh"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 description = "DYEH log provider for lazylog (internal)"
 publish = false  # Don't publish to crates.io

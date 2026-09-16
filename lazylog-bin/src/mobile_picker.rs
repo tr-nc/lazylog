@@ -1,3 +1,4 @@
+use crate::catalog::{PROVIDERS, ProviderKind, TARGET_APPS, TargetApp};
 use crossterm::event::{
     self, Event, KeyCode, KeyEventKind, MouseButton, MouseEvent, MouseEventKind,
 };
@@ -11,7 +12,7 @@ use lazylog_ios::{
 };
 use ratatui::{
     Terminal,
-    backend::CrosstermBackend,
+    backend::{Backend, CrosstermBackend},
     layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
@@ -27,88 +28,18 @@ use std::thread;
 use std::time::Duration;
 use unicode_width::UnicodeWidthStr;
 
-const APPS: [IosApp; 2] = [IosApp::EffectCam, IosApp::Douyin];
-const PROVIDERS: [ProviderKind; 4] = [
-    ProviderKind::Ios,
-    ProviderKind::Android,
-    ProviderKind::DyehPreview,
-    ProviderKind::DyehEditor,
-];
 const REFRESH_INTERVAL: Duration = Duration::from_secs(1);
 const EVENT_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const CONTENT_INDENT: &str = "  ";
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum IosApp {
-    EffectCam,
-    Douyin,
-}
-
-impl IosApp {
-    pub(crate) const EFFECTCAM_BUNDLE_ID: &'static str = "com.ss.ios.ugc.EffectCamInhouse";
-    pub(crate) const DOUYIN_BUNDLE_ID: &'static str = "com.ss.iphone.ugc.AwemeInhouse";
-
-    pub(crate) fn parse(value: &str) -> Result<Self, io::Error> {
-        match value.to_ascii_lowercase().as_str() {
-            "effectcam" | "xiangsu" => Ok(Self::EffectCam),
-            "douyin" | "aweme" => Ok(Self::Douyin),
-            _ if value == "像塑" || value == "像塑内测版" => Ok(Self::EffectCam),
-            _ if value == "抖音" => Ok(Self::Douyin),
-            _ => Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("Unknown iOS app '{value}'; expected effectcam or douyin"),
-            )),
-        }
-    }
-
-    pub(crate) fn bundle_id(self) -> &'static str {
-        match self {
-            Self::EffectCam => Self::EFFECTCAM_BUNDLE_ID,
-            Self::Douyin => Self::DOUYIN_BUNDLE_ID,
-        }
-    }
-
-    pub(crate) fn display_name(self) -> &'static str {
-        match self {
-            Self::EffectCam => "像塑内测版",
-            Self::Douyin => "抖音开发版",
-        }
-    }
-}
+const TAB_SEPARATOR: &str = " | ";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct IosSelection {
     pub(crate) device: String,
-    pub(crate) app: IosApp,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ProviderKind {
-    Ios,
-    Android,
-    DyehPreview,
-    DyehEditor,
+    pub(crate) app: TargetApp,
 }
 
 impl ProviderKind {
-    pub(crate) fn display_name(self) -> &'static str {
-        match self {
-            Self::Ios => "iOS",
-            Self::Android => "Android",
-            Self::DyehPreview => "DYEH 预览",
-            Self::DyehEditor => "DYEH 编辑器",
-        }
-    }
-
-    pub(crate) fn mode_name(self) -> &'static str {
-        match self {
-            Self::Ios => "ios",
-            Self::Android => "android",
-            Self::DyehPreview => "dyeh preview",
-            Self::DyehEditor => "dyeh editor",
-        }
-    }
-
     fn platform(self) -> Option<PickerPlatform> {
         match self {
             Self::Ios => Some(PickerPlatform::Ios),
@@ -219,9 +150,9 @@ pub(crate) struct PickerState {
     highlighted_device: Option<usize>,
     selected_device: Option<String>,
     highlighted_app: usize,
-    selected_app: Option<IosApp>,
-    requested_app: Option<IosApp>,
-    app_availability: Option<[DisplayAvailability; APPS.len()]>,
+    selected_app: Option<TargetApp>,
+    requested_app: Option<TargetApp>,
+    app_availability: Option<[DisplayAvailability; TARGET_APPS.len()]>,
     discovery_error: Option<String>,
     has_discovered: bool,
     message: Option<String>,
@@ -230,7 +161,7 @@ pub(crate) struct PickerState {
 impl PickerState {
     pub(crate) fn new(
         requested_provider: Option<ProviderKind>,
-        requested_app: Option<IosApp>,
+        requested_app: Option<TargetApp>,
     ) -> Self {
         let tabs = requested_provider
             .map(Self::tabs_for)
@@ -238,7 +169,7 @@ impl PickerState {
         let active_tab =
             usize::from(requested_provider.is_some_and(|provider| provider.platform().is_some()));
         let highlighted_app = requested_app
-            .and_then(|requested| APPS.iter().position(|app| *app == requested))
+            .and_then(|requested| TARGET_APPS.iter().position(|app| *app == requested))
             .unwrap_or(0);
         Self {
             selected_provider: requested_provider,
@@ -284,6 +215,14 @@ impl PickerState {
 
     fn active_tab(&self) -> TabKind {
         self.tabs[self.active_tab]
+    }
+
+    fn display_tabs(&self) -> Vec<TabKind> {
+        if self.active_tab() == TabKind::Provider {
+            Self::tabs_for(PROVIDERS[self.highlighted_provider])
+        } else {
+            self.tabs.clone()
+        }
     }
 
     fn update_devices(&mut self, result: io::Result<Vec<DeviceOption>>) -> bool {
@@ -397,18 +336,18 @@ impl PickerState {
     fn update_availability(
         &mut self,
         device: &str,
-        availability: [DisplayAvailability; APPS.len()],
+        availability: [DisplayAvailability; TARGET_APPS.len()],
     ) {
         if self.selected_device.as_deref() == Some(device) {
             self.app_availability = Some(availability);
         }
     }
 
-    fn commit_app(&mut self, app: IosApp) -> PickerAction {
+    fn commit_app(&mut self, app: TargetApp) -> PickerAction {
         let Some(device) = self.selected_device.clone() else {
             return PickerAction::Continue;
         };
-        if !APPS.contains(&app) {
+        if !TARGET_APPS.contains(&app) {
             return PickerAction::Continue;
         }
         self.selected_app = Some(app);
@@ -437,7 +376,7 @@ impl PickerState {
                 }
             }
             TabKind::App => {
-                self.highlighted_app = move_index(self.highlighted_app, APPS.len(), delta);
+                self.highlighted_app = move_index(self.highlighted_app, TARGET_APPS.len(), delta);
             }
         }
     }
@@ -477,7 +416,7 @@ impl PickerState {
                 KeyCode::Enter => match self.active_tab() {
                     TabKind::Provider => self.commit_highlighted_provider(),
                     TabKind::Device => self.commit_highlighted_device(),
-                    TabKind::App => self.commit_app(APPS[self.highlighted_app]),
+                    TabKind::App => self.commit_app(TARGET_APPS[self.highlighted_app]),
                 },
                 KeyCode::Esc => {
                     if self.active_tab > 0 {
@@ -568,12 +507,12 @@ fn tab_at_position(tab_areas: &[Rect], column: u16, row: u16) -> Option<usize> {
         .position(|area| contains(*area, column, row))
 }
 
-fn app_at_position(list_area: Rect, column: u16, row: u16) -> Option<IosApp> {
+fn app_at_position(list_area: Rect, column: u16, row: u16) -> Option<TargetApp> {
     if !contains(list_area, column, row) {
         return None;
     }
     let index = row.checked_sub(list_area.y)? as usize;
-    APPS.get(index).copied()
+    TARGET_APPS.get(index).copied()
 }
 
 fn provider_at_position(list_area: Rect, column: u16, row: u16) -> Option<ProviderKind> {
@@ -586,11 +525,15 @@ fn provider_at_position(list_area: Rect, column: u16, row: u16) -> Option<Provid
 
 struct WorkerGuard {
     should_stop: Arc<AtomicBool>,
+    thread_handle: Option<thread::JoinHandle<()>>,
 }
 
 impl Drop for WorkerGuard {
     fn drop(&mut self) {
         self.should_stop.store(true, Ordering::Relaxed);
+        if let Some(handle) = self.thread_handle.take() {
+            let _ = handle.join();
+        }
     }
 }
 
@@ -613,7 +556,7 @@ where
     let should_stop = Arc::new(AtomicBool::new(false));
     let worker_stop = should_stop.clone();
 
-    thread::spawn(move || {
+    let thread_handle = thread::spawn(move || {
         while !worker_stop.load(Ordering::Relaxed) {
             if sender.send(discover()).is_err() {
                 return;
@@ -622,22 +565,30 @@ where
         }
     });
 
-    (receiver, WorkerGuard { should_stop })
+    (
+        receiver,
+        WorkerGuard {
+            should_stop,
+            thread_handle: Some(thread_handle),
+        },
+    )
 }
 
-type AvailabilityUpdate = (String, [DisplayAvailability; APPS.len()]);
+type AvailabilityUpdate = (String, [DisplayAvailability; TARGET_APPS.len()]);
 
 fn spawn_availability_worker(device: String) -> (mpsc::Receiver<AvailabilityUpdate>, WorkerGuard) {
     let (sender, receiver) = mpsc::channel();
     let should_stop = Arc::new(AtomicBool::new(false));
     let worker_stop = should_stop.clone();
 
-    thread::spawn(move || {
+    let thread_handle = thread::spawn(move || {
         while !worker_stop.load(Ordering::Relaxed) {
-            let bundle_ids = APPS.map(IosApp::bundle_id);
+            let bundle_ids = TARGET_APPS.map(TargetApp::ios_bundle_id);
             let availability = match app_availabilities(&device, &bundle_ids) {
-                Ok(values) if values.len() == APPS.len() => [values[0].into(), values[1].into()],
-                Ok(_) | Err(_) => [DisplayAvailability::DetectionFailed; APPS.len()],
+                Ok(values) if values.len() == TARGET_APPS.len() => {
+                    [values[0].into(), values[1].into()]
+                }
+                Ok(_) | Err(_) => [DisplayAvailability::DetectionFailed; TARGET_APPS.len()],
             };
             if sender.send((device.clone(), availability)).is_err() {
                 return;
@@ -646,7 +597,13 @@ fn spawn_availability_worker(device: String) -> (mpsc::Receiver<AvailabilityUpda
         }
     });
 
-    (receiver, WorkerGuard { should_stop })
+    (
+        receiver,
+        WorkerGuard {
+            should_stop,
+            thread_handle: Some(thread_handle),
+        },
+    )
 }
 
 fn ios_device_options() -> io::Result<Vec<DeviceOption>> {
@@ -719,17 +676,22 @@ fn picker_layout(area: Rect) -> (Rect, Rect) {
 }
 
 fn tab_width(tab: TabKind) -> u16 {
-    (tab.title().width() + 2).min(u16::MAX as usize) as u16
+    tab.title().width().min(u16::MAX as usize) as u16
 }
 
 fn tab_areas(panel_area: Rect, tabs: &[TabKind]) -> Vec<Rect> {
     let mut x = panel_area.x.saturating_add(1);
     let right = panel_area.x.saturating_add(panel_area.width);
+    let separator_width = TAB_SEPARATOR.width().min(u16::MAX as usize) as u16;
     tabs.iter()
-        .map(|tab| {
+        .enumerate()
+        .map(|(index, tab)| {
             let width = tab_width(*tab).min(right.saturating_sub(x));
             let area = Rect::new(x, panel_area.y, width, u16::from(width > 0));
             x = x.saturating_add(width);
+            if index + 1 < tabs.len() {
+                x = x.saturating_add(separator_width);
+            }
             area
         })
         .collect()
@@ -745,18 +707,50 @@ fn mode_color(state: &PickerState) -> Color {
 }
 
 fn tabs_title(state: &PickerState, color: Color) -> Line<'static> {
-    let spans = state.tabs.iter().enumerate().map(|(index, tab)| {
+    let tabs = state.display_tabs();
+    let inactive_style = Style::default()
+        .fg(Color::DarkGray)
+        .remove_modifier(Modifier::BOLD | Modifier::UNDERLINED);
+    let mut spans = Vec::with_capacity(tabs.len().saturating_mul(2).saturating_sub(1));
+    for (index, tab) in tabs.iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::styled(TAB_SEPARATOR, inactive_style));
+        }
         let style = if index == state.active_tab {
             Style::default()
-                .fg(Color::Black)
-                .bg(color)
-                .add_modifier(Modifier::BOLD)
+                .fg(color)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
         } else {
-            Style::default().fg(Color::DarkGray)
+            inactive_style
         };
-        Span::styled(format!(" {} ", tab.title()), style)
-    });
-    Line::from_iter(spans)
+        spans.push(Span::styled(tab.title(), style));
+    }
+    Line::from(spans)
+}
+
+fn centered_message_area(area: Rect, line_count: usize) -> Rect {
+    let height = (line_count.min(u16::MAX as usize) as u16).min(area.height);
+    Rect::new(
+        area.x,
+        area.y + area.height.saturating_sub(height) / 2,
+        area.width,
+        height,
+    )
+}
+
+fn render_centered_message(
+    frame: &mut ratatui::Frame<'_>,
+    message: &str,
+    style: Style,
+    area: Rect,
+) {
+    let message_area = centered_message_area(area, message.lines().count());
+    frame.render_widget(
+        Paragraph::new(message)
+            .alignment(Alignment::Center)
+            .style(style),
+        message_area,
+    );
 }
 
 fn visible_offset(state: &PickerState, list_area: Rect) -> usize {
@@ -770,14 +764,14 @@ fn visible_offset(state: &PickerState, list_area: Rect) -> usize {
         .unwrap_or(0)
 }
 
-fn app_row(app: IosApp, availability: Option<DisplayAvailability>) -> String {
-    let identity = app.display_name();
+fn app_row(app: TargetApp, availability: Option<DisplayAvailability>) -> String {
+    let identity = app.ios_display_name();
     let Some(availability) = availability else {
         return identity.to_string();
     };
-    let identity_column_width = APPS
+    let identity_column_width = TARGET_APPS
         .iter()
-        .map(|app| app.display_name().width())
+        .map(|app| app.ios_display_name().width())
         .max()
         .unwrap_or_default();
     let padding = identity_column_width.saturating_sub(identity.width()) + 2;
@@ -786,18 +780,15 @@ fn app_row(app: IosApp, availability: Option<DisplayAvailability>) -> String {
 
 fn selected_app_notice(state: &PickerState) -> (String, Style) {
     if state.selected_device.is_none() {
-        return (
-            format!("{CONTENT_INDENT}请先选择设备"),
-            Style::default().fg(Color::DarkGray),
-        );
+        return (String::new(), Style::default());
     }
 
-    let app = APPS[state.highlighted_app];
+    let app = TARGET_APPS[state.highlighted_app];
     let Some(availability) = state.app_availability else {
         return (
             format!(
                 "{CONTENT_INDENT}确认后将重新启动 {}；安装状态正在后台检测",
-                app.display_name()
+                app.ios_display_name()
             ),
             Style::default().fg(Color::Yellow),
         );
@@ -807,21 +798,21 @@ fn selected_app_notice(state: &PickerState) -> (String, Style) {
         DisplayAvailability::Installed => (
             format!(
                 "{CONTENT_INDENT}确认后将重新启动 {}；现有进程（如有）会被终止",
-                app.display_name()
+                app.ios_display_name()
             ),
             Style::default().fg(Color::Yellow),
         ),
         DisplayAvailability::NotInstalled => (
             format!(
                 "{CONTENT_INDENT}提示：{} 未安装；确认后仍会尝试启动",
-                app.display_name()
+                app.ios_display_name()
             ),
             Style::default().fg(Color::Red),
         ),
         DisplayAvailability::DetectionFailed => (
             format!(
                 "{CONTENT_INDENT}安装状态检测失败；确认后仍会尝试启动 {}",
-                app.display_name()
+                app.ios_display_name()
             ),
             Style::default().fg(Color::Yellow),
         ),
@@ -842,8 +833,8 @@ fn render_list(
     frame.render_stateful_widget(list, area, &mut list_state);
 }
 
-fn draw_picker(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+fn draw_picker<B: Backend>(
+    terminal: &mut Terminal<B>,
     state: &PickerState,
 ) -> io::Result<VisibleAreas> {
     let mut visible = VisibleAreas::default();
@@ -856,12 +847,15 @@ fn draw_picker(
             .focused(true)
             .build();
         let panel_inner = panel.inner(panel_area);
+        let notice_height =
+            u16::from(state.active_tab() == TabKind::App && state.selected_device.is_some());
         let [list_area, notice_area] =
-            Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(panel_inner);
+            Layout::vertical([Constraint::Fill(1), Constraint::Length(notice_height)])
+                .areas(panel_inner);
         frame.render_widget(Clear, panel_area);
         frame.render_widget(panel, panel_area);
 
-        visible.tabs = tab_areas(panel_area, &state.tabs);
+        visible.tabs = tab_areas(panel_area, &state.display_tabs());
         let offset = visible_offset(state, list_area);
         visible.list = VisibleList {
             area: list_area,
@@ -888,10 +882,10 @@ fn draw_picker(
                         ),
                         (None, false) => "正在发现设备…".to_string(),
                     };
-                    frame.render_widget(
-                        Paragraph::new(message)
-                            .alignment(Alignment::Center)
-                            .style(Style::default().fg(Color::DarkGray)),
+                    render_centered_message(
+                        frame,
+                        &message,
+                        Style::default().fg(Color::DarkGray),
                         list_area,
                     );
                 } else {
@@ -906,14 +900,14 @@ fn draw_picker(
             }
             TabKind::App => {
                 if state.selected_device.is_none() {
-                    frame.render_widget(
-                        Paragraph::new("请先选择设备")
-                            .alignment(Alignment::Center)
-                            .style(Style::default().fg(Color::DarkGray)),
+                    render_centered_message(
+                        frame,
+                        "请先选择设备",
+                        Style::default().fg(Color::DarkGray),
                         list_area,
                     );
                 } else {
-                    let items = APPS.iter().enumerate().map(|(index, app)| {
+                    let items = TARGET_APPS.iter().enumerate().map(|(index, app)| {
                         ListItem::new(format!(
                             "{CONTENT_INDENT}{}",
                             app_row(*app, state.app_availability.map(|values| values[index]),)
@@ -1040,6 +1034,7 @@ pub(crate) fn pick(
 mod tests {
     use super::*;
     use crossterm::event::{KeyEvent, KeyModifiers};
+    use ratatui::{backend::TestBackend, buffer::Buffer};
 
     fn device(id: &str) -> DeviceOption {
         DeviceOption {
@@ -1057,6 +1052,56 @@ mod tests {
         let mut state = PickerState::new(Some(ProviderKind::Ios), None);
         state.selected_device = device.map(str::to_string);
         state
+    }
+
+    fn rendered_picker(state: &PickerState, width: u16, height: u16) -> (Buffer, VisibleAreas) {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let visible = draw_picker(&mut terminal, state).unwrap();
+        (terminal.backend().buffer().clone(), visible)
+    }
+
+    fn symbol_positions(buffer: &Buffer, symbol: &str) -> Vec<(u16, u16)> {
+        let area = *buffer.area();
+        (area.y..area.y.saturating_add(area.height))
+            .flat_map(|y| {
+                (area.x..area.x.saturating_add(area.width))
+                    .filter(move |x| buffer[(*x, y)].symbol() == symbol)
+                    .map(move |x| (x, y))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn dropping_a_worker_waits_for_its_in_flight_query() {
+        let (started_sender, started_receiver) = mpsc::channel();
+        let (release_sender, release_receiver) = mpsc::channel();
+        let (_updates, guard) = spawn_discovery(move || {
+            started_sender.send(()).unwrap();
+            let _ = release_receiver.recv();
+            Ok(Vec::new())
+        });
+        started_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap();
+
+        let (dropped_sender, dropped_receiver) = mpsc::channel();
+        let drop_thread = thread::spawn(move || {
+            drop(guard);
+            dropped_sender.send(()).unwrap();
+        });
+
+        assert!(
+            dropped_receiver
+                .recv_timeout(Duration::from_millis(50))
+                .is_err(),
+            "worker guard returned while its query was still running"
+        );
+        release_sender.send(()).unwrap();
+        dropped_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap();
+        drop_thread.join().unwrap();
     }
 
     #[test]
@@ -1136,8 +1181,8 @@ mod tests {
     #[test]
     fn selecting_a_different_provider_invalidates_later_steps() {
         let mut state = ios_state(Some("one"));
-        state.selected_app = Some(IosApp::Douyin);
-        state.app_availability = Some([DisplayAvailability::Installed; APPS.len()]);
+        state.selected_app = Some(TargetApp::Douyin);
+        state.app_availability = Some([DisplayAvailability::Installed; TARGET_APPS.len()]);
 
         state.commit_provider(ProviderKind::Android);
 
@@ -1145,6 +1190,32 @@ mod tests {
         assert_eq!(state.selected_app, None);
         assert_eq!(state.app_availability, None);
         assert_eq!(state.tabs, vec![TabKind::Provider, TabKind::Device]);
+    }
+
+    #[test]
+    fn provider_highlight_previews_tabs_without_mutating_committed_ios_state() {
+        let mut state = ios_state(Some("one"));
+        state.selected_app = Some(TargetApp::Douyin);
+        state.app_availability = Some([DisplayAvailability::Installed; TARGET_APPS.len()]);
+        state.active_tab = state.tab_index(TabKind::Provider).unwrap();
+
+        state.handle_event(key(KeyCode::Down), &VisibleAreas::default());
+
+        let title = tabs_title(&state, mode_color(&state));
+        let title_text = title
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+        assert_eq!(state.highlighted_provider, 1);
+        assert!(!title_text.contains("APP"));
+        assert_eq!(state.selected_provider, Some(ProviderKind::Ios));
+        assert_eq!(state.selected_device.as_deref(), Some("one"));
+        assert_eq!(state.selected_app, Some(TargetApp::Douyin));
+        assert_eq!(
+            state.app_availability,
+            Some([DisplayAvailability::Installed; TARGET_APPS.len()])
+        );
     }
 
     #[test]
@@ -1217,8 +1288,8 @@ mod tests {
     #[test]
     fn selecting_a_different_device_invalidates_app_state() {
         let mut state = ios_state(Some("one"));
-        state.selected_app = Some(IosApp::Douyin);
-        state.app_availability = Some([DisplayAvailability::Installed; APPS.len()]);
+        state.selected_app = Some(TargetApp::Douyin);
+        state.app_availability = Some([DisplayAvailability::Installed; TARGET_APPS.len()]);
 
         state.commit_device("two".to_string());
 
@@ -1230,15 +1301,15 @@ mod tests {
     #[test]
     fn selecting_the_same_device_preserves_later_state() {
         let mut state = ios_state(Some("one"));
-        state.selected_app = Some(IosApp::Douyin);
-        state.app_availability = Some([DisplayAvailability::Installed; APPS.len()]);
+        state.selected_app = Some(TargetApp::Douyin);
+        state.app_availability = Some([DisplayAvailability::Installed; TARGET_APPS.len()]);
 
         state.commit_device("one".to_string());
 
-        assert_eq!(state.selected_app, Some(IosApp::Douyin));
+        assert_eq!(state.selected_app, Some(TargetApp::Douyin));
         assert_eq!(
             state.app_availability,
-            Some([DisplayAvailability::Installed; APPS.len()])
+            Some([DisplayAvailability::Installed; TARGET_APPS.len()])
         );
     }
 
@@ -1254,10 +1325,45 @@ mod tests {
     }
 
     #[test]
+    fn device_updates_reflect_plug_unplug_and_replug_without_reopening_picker() {
+        let mut state = ios_state(Some("one"));
+        state.active_tab = state.tab_index(TabKind::App).unwrap();
+        state.update_devices(Ok(vec![device("one")]));
+
+        assert!(!state.update_devices(Ok(vec![device("one"), device("two")])));
+        assert_eq!(
+            state
+                .devices
+                .iter()
+                .map(|device| device.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["one", "two"]
+        );
+        assert_eq!(state.selected_device.as_deref(), Some("one"));
+
+        assert!(state.update_devices(Ok(vec![device("two")])));
+        assert_eq!(state.selected_device, None);
+        assert_eq!(state.active_tab(), TabKind::Device);
+
+        assert!(!state.update_devices(Ok(vec![device("two"), device("one")])));
+        assert_eq!(
+            state
+                .devices
+                .iter()
+                .map(|device| device.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["two", "one"]
+        );
+    }
+
+    #[test]
     fn app_cannot_be_confirmed_without_a_device() {
         let mut state = ios_state(None);
 
-        assert_eq!(state.commit_app(IosApp::EffectCam), PickerAction::Continue);
+        assert_eq!(
+            state.commit_app(TargetApp::EffectCam),
+            PickerAction::Continue
+        );
     }
 
     #[test]
@@ -1265,23 +1371,23 @@ mod tests {
         let mut state = ios_state(Some("one"));
 
         assert_eq!(
-            state.commit_app(IosApp::EffectCam),
+            state.commit_app(TargetApp::EffectCam),
             PickerAction::Complete(PickerSelection::Ios(IosSelection {
                 device: "one".to_string(),
-                app: IosApp::EffectCam,
+                app: TargetApp::EffectCam,
             }))
         );
     }
 
     #[test]
     fn requested_app_skips_app_tab_once_device_is_selected() {
-        let mut state = PickerState::new(Some(ProviderKind::Ios), Some(IosApp::Douyin));
+        let mut state = PickerState::new(Some(ProviderKind::Ios), Some(TargetApp::Douyin));
 
         assert_eq!(
             state.commit_device("one".to_string()),
             PickerAction::Complete(PickerSelection::Ios(IosSelection {
                 device: "one".to_string(),
-                app: IosApp::Douyin,
+                app: TargetApp::Douyin,
             }))
         );
         assert_eq!(state.requested_app, None);
@@ -1296,7 +1402,7 @@ mod tests {
             DisplayAvailability::Installed,
         ]);
         assert!(matches!(
-            state.commit_app(IosApp::EffectCam),
+            state.commit_app(TargetApp::EffectCam),
             PickerAction::Complete(PickerSelection::Ios(_))
         ));
 
@@ -1305,7 +1411,7 @@ mod tests {
             DisplayAvailability::Installed,
         ]);
         assert!(matches!(
-            state.commit_app(IosApp::EffectCam),
+            state.commit_app(TargetApp::EffectCam),
             PickerAction::Complete(PickerSelection::Ios(_))
         ));
     }
@@ -1321,9 +1427,9 @@ mod tests {
 
     #[test]
     fn tabs_are_compact_and_embedded_on_the_panel_border() {
-        assert_eq!(tab_width(TabKind::Provider), 10);
-        assert_eq!(tab_width(TabKind::Device), 6);
-        assert_eq!(tab_width(TabKind::App), 5);
+        assert_eq!(tab_width(TabKind::Provider), 8);
+        assert_eq!(tab_width(TabKind::Device), 4);
+        assert_eq!(tab_width(TabKind::App), 3);
 
         let areas = tab_areas(
             Rect::new(10, 4, 40, 12),
@@ -1332,11 +1438,72 @@ mod tests {
         assert_eq!(
             areas,
             vec![
-                Rect::new(11, 4, 10, 1),
-                Rect::new(21, 4, 6, 1),
-                Rect::new(27, 4, 5, 1),
+                Rect::new(11, 4, 8, 1),
+                Rect::new(22, 4, 4, 1),
+                Rect::new(29, 4, 3, 1),
             ]
         );
+    }
+
+    #[test]
+    fn tabs_use_separators_and_active_text_emphasis_without_a_background() {
+        let state = PickerState::new(Some(ProviderKind::Ios), None);
+        let title = tabs_title(&state, Color::LightBlue);
+        let contents: Vec<_> = title
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect();
+
+        assert_eq!(contents, vec!["Provider", " | ", "设备", " | ", "APP"]);
+        for (index, span) in title.spans.iter().enumerate() {
+            assert_eq!(span.style.bg, None);
+            if index == 2 {
+                assert!(span.style.add_modifier.contains(Modifier::BOLD));
+                assert!(span.style.add_modifier.contains(Modifier::UNDERLINED));
+            } else {
+                assert!(span.style.sub_modifier.contains(Modifier::BOLD));
+            }
+        }
+    }
+
+    #[test]
+    fn rendered_tabs_keep_only_the_active_tab_bold_and_underlined() {
+        let state = PickerState::new(Some(ProviderKind::Ios), None);
+        let color = mode_color(&state);
+        let (buffer, visible) = rendered_picker(&state, 100, 30);
+        let provider_style = buffer[(visible.tabs[0].x, visible.tabs[0].y)].style();
+        let device_style = buffer[(visible.tabs[1].x, visible.tabs[1].y)].style();
+        let separator = &buffer[(visible.tabs[0].right() + 1, visible.tabs[0].y)];
+
+        assert_eq!(separator.symbol(), "|");
+        assert!(!provider_style.add_modifier.contains(Modifier::BOLD));
+        assert!(!provider_style.add_modifier.contains(Modifier::UNDERLINED));
+        assert!(device_style.add_modifier.contains(Modifier::BOLD));
+        assert!(device_style.add_modifier.contains(Modifier::UNDERLINED));
+        assert_ne!(device_style.bg, Some(color));
+    }
+
+    #[test]
+    fn app_without_a_device_renders_one_centered_empty_state() {
+        let mut state = ios_state(None);
+        state.active_tab = state.tab_index(TabKind::App).unwrap();
+
+        let (buffer, visible) = rendered_picker(&state, 100, 30);
+        let positions = symbol_positions(&buffer, "请");
+
+        assert_eq!(positions.len(), 1);
+        let (x, y) = positions[0];
+        let expected_y = visible.list.area.y + visible.list.area.height.saturating_sub(1) / 2;
+        let expected_x = visible.list.area.x
+            + visible
+                .list
+                .area
+                .width
+                .saturating_sub("请先选择设备".width() as u16)
+                / 2;
+        assert_eq!(y, expected_y);
+        assert_eq!(x, expected_x);
     }
 
     #[test]
@@ -1353,8 +1520,8 @@ mod tests {
 
     #[test]
     fn app_statuses_start_in_the_same_terminal_column() {
-        let effectcam = app_row(IosApp::EffectCam, Some(DisplayAvailability::Installed));
-        let douyin = app_row(IosApp::Douyin, Some(DisplayAvailability::Installed));
+        let effectcam = app_row(TargetApp::EffectCam, Some(DisplayAvailability::Installed));
+        let douyin = app_row(TargetApp::Douyin, Some(DisplayAvailability::Installed));
         let effectcam_status = effectcam.find('✓').unwrap();
         let douyin_status = douyin.find('✓').unwrap();
 
@@ -1366,7 +1533,7 @@ mod tests {
 
     #[test]
     fn preset_app_rows_exist_before_availability_hint_arrives() {
-        assert_eq!(app_row(IosApp::EffectCam, None), "像塑内测版");
-        assert_eq!(app_row(IosApp::Douyin, None), "抖音开发版");
+        assert_eq!(app_row(TargetApp::EffectCam, None), "像塑内测版");
+        assert_eq!(app_row(TargetApp::Douyin, None), "抖音开发版");
     }
 }

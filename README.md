@@ -76,6 +76,9 @@ cargo run -- --ios
 cargo run -- --ios --ios-app effectcam
 cargo run -- --ios --ios-app douyin
 
+# Keep devicectl device/App control, but read logs with idevicesyslog
+cargo run -- --ios --ios-app effectcam --ios-log-backend idevicesyslog
+
 # Skip Provider selection and choose an Android device
 cargo run -- --android
 
@@ -96,6 +99,14 @@ cargo run -- --headless --android --filter "ERROR"
 
 # Stream iOS logs non-interactively (an explicit app is required)
 cargo run -- --headless --ios --ios-app effectcam
+
+# Target an exact device ID from `lazylog agent inspect --json`
+cargo run -- --headless --ios --ios-device 00008120-EXAMPLE \
+  --ios-app effectcam
+cargo run -- --headless --android --android-device emulator-5554
+
+# Compare against the device-wide idevicesyslog stream
+cargo run -- --headless --ios --ios-app effectcam --ios-log-backend idevicesyslog
 ```
 
 Headless mode behavior:
@@ -105,6 +116,8 @@ Headless mode behavior:
 - Applies startup filters from `--filter`
 - Prints each matching parsed item using its full `raw_content`
 - Requires `--ios-app effectcam|douyin` in iOS mode
+- Uses `devicectl` for the iOS log stream by default; `--ios-log-backend idevicesyslog`
+  switches only log capture, not device/App control
 
 ### Agent mode
 
@@ -112,15 +125,36 @@ Use `--agent` for coding-agent sessions. It writes every parsed item to a unique
 temporary file and never sends log content to stdout.
 
 ```bash
+# Inspect devices, App states, backends, and valid next commands without changing runtime state
+cargo run -- agent inspect --json
+
 # Capture for 30 seconds and use an automatically generated capture path
 cargo run -- --agent --dyeh-preview --duration 30
 
-# Capture iOS logs non-interactively (an explicit app is required)
-cargo run -- --agent --ios --ios-app effectcam --duration 30
+# Capture iOS logs on an exact inspected device
+cargo run -- --agent --ios --ios-device 00008120-EXAMPLE \
+  --ios-app effectcam --duration 30
+
+# Capture Android logs on an exact inspected device
+cargo run -- --agent --android --android-device emulator-5554 --duration 30
+
+# A/B test the legacy device syslog stream without changing the control path
+cargo run -- --agent --ios --ios-app effectcam \
+  --ios-log-backend idevicesyslog --duration 30
 ```
 
 Agent mode behavior:
 
+- `agent inspect --json` writes schema-versioned discovery data to stdout and nothing to stderr on
+  success; it does not launch or terminate an App and does not start a capture
+- Inspection reports explicit iOS and Android device counts; for every known target App it
+  distinguishes installation and process presence, and on iOS also reports control readiness
+- Every generated mobile capture command includes `--ios-device` or `--android-device`, so an agent
+  can act on any listed device instead of silently falling back to the first one
+- Process presence does not mean foreground state; cross-process Lazylog capture-session detection
+  is explicitly reported as unsupported
+- Inspection probes whether the optional `idevicesyslog` executable is available but never requires
+  or installs it
 - Creates a new capture file for every invocation under the OS temporary directory at
   `lazylog/agent-captures`
 - Prints only the capture path, status changes, and final statistics to stderr; stdout stays empty
@@ -128,6 +162,17 @@ Agent mode behavior:
 - Captures every parsed item; search the resulting file with tools such as `rg` after or during capture
 - Stops and flushes cleanly on `Ctrl+C`, `SIGTERM`, or after `--duration`
 - Requires `--ios-app effectcam|douyin` in iOS mode; Agent mode never opens a picker
+- Checks for `idevicesyslog` only when that backend is explicitly selected
+
+### 0.11 mobile CLI migration
+
+Version 0.11 consolidates `--ios` and `--android` on the structured effect-log parsers. The former
+`--ios-effect`, `--android-effect`, `-i`, `-ie`, `-a`, `-ae`, `-dyp`, and `-dye` spellings remain
+accepted for this release and print a deprecation warning; use the canonical long options in new
+commands. The removed unstructured full-device modes are not restored by those aliases.
+
+`--ios-device <ID>` and `--android-device <SERIAL>` are available in Agent and headless modes.
+Interactive mode continues to use the live Device picker.
 
 ### Connection status
 
@@ -136,11 +181,25 @@ unplugged USB cable, a disconnected device, an exited target App, and a failed c
 Android reports device disconnects and capture failures; because its current source is global
 `adb logcat`, it cannot reliably infer that one particular App exited.
 
+Some Android builds publish each structured effect record twice: first under its original logcat
+tag (which may be empty), then through the `Effect` mirror tag. Lazylog folds only a structurally
+matched mirror pair: the PID, TID, level, complete payload, and immediate logcat timing must agree.
+Single-channel builds, unmatched `Effect` records, and repeated source writes are preserved. This
+keeps release builds such as Douyin working while removing the dual-channel copies seen in internal
+builds and EffectCam, without general content-based deduplication.
+
 Interactive sessions use one progressive picker. Its Provider tab lists iOS, Android, DYEH
 preview, and DYEH editor. iOS then exposes Device and App tabs; Android exposes Device; DYEH needs
 no additional selection. Switching an earlier selection invalidates dependent later selections.
 All picker lists can be controlled with arrow keys or the mouse, and the picker refreshes device
-and iOS App availability hints in the background.
+and iOS App availability hints in the background. Once a mobile Provider is committed, its device
+list is refreshed about once per second, so plugging, unplugging, and replugging devices is reflected
+without reopening the picker.
+
+While the Provider tab is active, moving the highlight previews that Provider's downstream tabs:
+iOS shows Device and App, Android shows Device, and DYEH shows neither. Previewing is display-only;
+only Enter or clicking a Provider row commits the Provider and invalidates dependent selections,
+so highlighting Android does not stop or replace a previously selected iOS session.
 
 If an iOS target App exits, Lazylog returns to the App tab while retaining the selected device. If
 the selected iOS or Android device disconnects, Lazylog returns to the Device tab. From a log view,
@@ -148,6 +207,23 @@ press `Esc` twice within 500ms to return to the picker; press `q` anywhere to ex
 App list reports installed, not installed, or detection failed as a hint. A preset App remains
 selectable in all three states, and confirming it asks `devicectl` to terminate any existing
 process and relaunch the App with its console attached.
+
+`devicectl` remains the iOS control plane for device discovery, App inspection, launch, and target
+exit monitoring. The default log backend attaches `devicectl` app-console. Passing
+`--ios-log-backend idevicesyslog` launches the same selected App through `devicectl`, then reads the
+selected device's syslog with `idevicesyslog -u <UDID>`. This optional backend is useful for A/B
+testing log coverage; because the stream is device-wide, the effect parser still retains only
+structured effect logs. Capture commands never require or ask users to install `idevicesyslog`
+unless this backend is selected for that invocation; read-only Agent inspection only reports whether
+the executable is already available. Before either backend changes the target App,
+Lazylog makes one read-only control request with a five-second limit. A device that is discoverable
+but not controllable produces an actionable error instead of entering a partially connected session.
+The default `devicectl` backend gives the process a Lazylog-owned pseudo-terminal while keeping
+devicectl stderr separate. App logs are consumed only from stdout; stderr is drained as a bounded
+diagnostics channel. This prevents cross-channel console mirrors from entering the log stream
+without comparing or deleting records by content, so two identical records written to stdout are
+still preserved. The optional `idevicesyslog` backend preserves its raw stream for coverage
+comparisons.
 
 The generated Agent capture path is stored under the OS temporary directory in
 `lazylog/agent-captures`. A complete capture means everything Lazylog observed during that
@@ -206,8 +282,10 @@ invocation; live providers do not necessarily include logs from before startup.
 
 ### Prerequisites
 
-- Rust toolchain 1.77+ ([install via rustup](https://rustup.rs))
+- Rust toolchain 1.88+ ([install via rustup](https://rustup.rs)); CI checks this minimum explicitly
 - **iOS support** (optional): Requires a current Xcode with `devicectl`
+- **Legacy iOS log backend** (optional): `brew install libimobiledevice`; required only for an
+  invocation that explicitly passes `--ios-log-backend idevicesyslog`
 - **Android support** (optional): Requires `adb` - install via `brew install android-platform-tools` on macOS
 
 ### Build and test

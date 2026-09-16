@@ -2,6 +2,7 @@
 name = "lazylog-parser"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 description = "Structured log parser for DYEH/iOS format logs"
 

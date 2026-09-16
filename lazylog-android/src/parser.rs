@@ -2,11 +2,75 @@ use lazy_static::lazy_static;
 use lazylog_framework::provider::{LogDetailLevel, LogItem, LogParser};
 use lazylog_parser::process_delta;
 use regex::Regex;
+use std::collections::VecDeque;
+use std::sync::Mutex;
+
+const EFFECT_MIRROR_TAG: &str = "Effect";
+const LEGACY_EFFECT_MIRROR_TAG: &str = "[Effect]";
+const MIRROR_MAX_STRUCTURED_DISTANCE: u64 = 64;
+const MIRROR_MAX_DELAY_MS: u32 = 100;
+const MIRROR_MAX_PENDING_SOURCES: usize = 128;
 
 lazy_static! {
     // for checking if log contains structured format
     static ref STRUCTURED_MARKER_RE: Regex =
         Regex::new(r"## \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}").unwrap();
+}
+
+#[derive(Debug)]
+struct LogcatIdentity {
+    date: String,
+    time_ms: u32,
+    pid: String,
+    tid: String,
+}
+
+fn parse_time_of_day_ms(value: &str) -> Option<u32> {
+    let mut fields = value.split([':', '.']);
+    let hours = fields.next()?.parse::<u32>().ok()?;
+    let minutes = fields.next()?.parse::<u32>().ok()?;
+    let seconds = fields.next()?.parse::<u32>().ok()?;
+    let milliseconds = fields.next()?.parse::<u32>().ok()?;
+    if fields.next().is_some()
+        || hours >= 24
+        || minutes >= 60
+        || seconds >= 60
+        || milliseconds >= 1_000
+    {
+        return None;
+    }
+
+    Some((((hours * 60) + minutes) * 60 + seconds) * 1_000 + milliseconds)
+}
+
+fn parse_logcat_identity(raw_log: &str) -> Option<LogcatIdentity> {
+    let first_line = raw_log.lines().next()?;
+    let header = first_line.strip_prefix('[')?.strip_suffix(']')?;
+    let slash_pos = header.find('/')?;
+    let level_start = header[..slash_pos]
+        .rfind(|c: char| c.is_whitespace())
+        .map(|pos| pos + 1)
+        .unwrap_or(0);
+    let mut fields = header[..level_start].split_whitespace();
+    let date = fields.next()?;
+    let time = fields.next()?;
+    let pid_field = fields.next()?;
+    let (pid, tid) = if let Some((pid, tid)) = pid_field.split_once(':') {
+        if tid.is_empty() {
+            (pid, fields.next()?)
+        } else {
+            (pid, tid)
+        }
+    } else {
+        return None;
+    };
+
+    Some(LogcatIdentity {
+        date: date.to_string(),
+        time_ms: parse_time_of_day_ms(time)?,
+        pid: pid.to_string(),
+        tid: tid.to_string(),
+    })
 }
 
 /// Android logcat parser
@@ -174,12 +238,87 @@ impl LogParser for AndroidParser {
 /// structured Android log parser - filters for structured logs and delegates to lazylog-parser
 pub struct AndroidEffectParser {
     full_parser: AndroidParser,
+    mirror_state: Mutex<MirrorState>,
+}
+
+#[derive(Debug)]
+struct MirrorSource {
+    sequence: u64,
+    date: String,
+    time_ms: u32,
+    pid: String,
+    tid: String,
+    level: String,
+    payload: String,
+}
+
+#[derive(Debug, Default)]
+struct MirrorState {
+    sequence: u64,
+    pending_sources: VecDeque<MirrorSource>,
+}
+
+impl MirrorState {
+    fn is_proven_mirror(
+        &mut self,
+        tag: &str,
+        level: &str,
+        payload: &str,
+        identity: LogcatIdentity,
+    ) -> bool {
+        self.sequence = self.sequence.saturating_add(1);
+        let current_sequence = self.sequence;
+        self.pending_sources.retain(|source| {
+            current_sequence.saturating_sub(source.sequence) <= MIRROR_MAX_STRUCTURED_DISTANCE
+        });
+
+        if matches!(tag, EFFECT_MIRROR_TAG | LEGACY_EFFECT_MIRROR_TAG) {
+            let matching_source = self
+                .pending_sources
+                .iter()
+                .enumerate()
+                .rev()
+                .find(|(_, source)| {
+                    source.date == identity.date
+                        && identity.time_ms >= source.time_ms
+                        && identity.time_ms - source.time_ms <= MIRROR_MAX_DELAY_MS
+                        && source.pid == identity.pid
+                        && source.tid == identity.tid
+                        && source.level == level
+                        && source.payload == payload
+                })
+                .map(|(index, _)| index);
+
+            if let Some(index) = matching_source {
+                self.pending_sources.remove(index);
+                return true;
+            }
+
+            return false;
+        }
+
+        self.pending_sources.push_back(MirrorSource {
+            sequence: current_sequence,
+            date: identity.date,
+            time_ms: identity.time_ms,
+            pid: identity.pid,
+            tid: identity.tid,
+            level: level.to_string(),
+            payload: payload.to_string(),
+        });
+        while self.pending_sources.len() > MIRROR_MAX_PENDING_SOURCES {
+            self.pending_sources.pop_front();
+        }
+
+        false
+    }
 }
 
 impl AndroidEffectParser {
     pub fn new() -> Self {
         Self {
             full_parser: AndroidParser::new(),
+            mirror_state: Mutex::new(MirrorState::default()),
         }
     }
 }
@@ -210,6 +349,16 @@ impl LogParser for AndroidEffectParser {
 
         // return first parsed item if available
         if let Some(item) = log_items.into_iter().next() {
+            let is_mirror = parse_logcat_identity(raw_log).is_some_and(|identity| {
+                let tag = parsed.get_metadata("tag").unwrap_or("");
+                let level = parsed.get_metadata("level").unwrap_or("");
+                self.mirror_state.lock().is_ok_and(|mut state| {
+                    state.is_proven_mirror(tag, level, inner_content, identity)
+                })
+            });
+            if is_mirror {
+                return None;
+            }
             return Some(item);
         }
 
@@ -375,5 +524,64 @@ plain unstructured message"#;
 
         let result = parser.parse(raw_log);
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_android_effect_parser_filters_proven_mirror_entry() {
+        let parser = AndroidEffectParser::new();
+        let source = r#"[ 09-16 15:22:12.474 17994:22341 I/AGFX_TAG-22.3.0.6 ]
+## 2026-09-16 15:22:12 [threadid:4119668528,RendererGLES2.cpp,1169] INFO ## [AGFX_TAG-22.3.0.6]Apply ABConfig GLESOptDisableLogInfo to 1"#;
+        let mirror = r#"[ 09-16 15:22:12.474 17994:22341 I/Effect ]
+## 2026-09-16 15:22:12 [threadid:4119668528,RendererGLES2.cpp,1169] INFO ## [AGFX_TAG-22.3.0.6]Apply ABConfig GLESOptDisableLogInfo to 1"#;
+
+        assert!(parser.parse(source).is_some());
+        assert!(parser.parse(mirror).is_none());
+    }
+
+    #[test]
+    fn test_android_effect_parser_preserves_two_source_writes() {
+        let parser = AndroidEffectParser::new();
+        let source = r#"[ 09-16 15:22:12.474 17994:22341 I/         ]
+## 2026-09-16 15:22:12 [tid:22341,RendererGLES2.cpp:1169] info ## [AGFX_TAG]same message"#;
+        let mirror = r#"[ 09-16 15:22:12.474 17994:22341 I/Effect ]
+## 2026-09-16 15:22:12 [tid:22341,RendererGLES2.cpp:1169] info ## [AGFX_TAG]same message"#;
+
+        assert!(parser.parse(source).is_some());
+        assert!(parser.parse(mirror).is_none());
+        assert!(parser.parse(source).is_some());
+        assert!(parser.parse(mirror).is_none());
+    }
+
+    #[test]
+    fn test_android_effect_parser_preserves_unpaired_effect_entry() {
+        let parser = AndroidEffectParser::new();
+        let effect_only = r#"[ 09-16 15:22:21.184 17994:22357 W/Effect ]
+## 2026-09-16 15:22:21 [tid:22357,AlgorithmManager.cpp:1433] warning ## [AE_ALGORITHM_TAG]standalone message"#;
+
+        assert!(parser.parse(effect_only).is_some());
+    }
+
+    #[test]
+    fn test_android_effect_parser_preserves_same_payload_from_different_thread() {
+        let parser = AndroidEffectParser::new();
+        let source = r#"[ 09-16 15:22:12.474 17994:22341 I/         ]
+## 2026-09-16 15:22:12 [Shared.cpp:1] info ## [AE_TAG]same message"#;
+        let other_thread = r#"[ 09-16 15:22:12.474 17994:22342 I/Effect ]
+## 2026-09-16 15:22:12 [Shared.cpp:1] info ## [AE_TAG]same message"#;
+
+        assert!(parser.parse(source).is_some());
+        assert!(parser.parse(other_thread).is_some());
+    }
+
+    #[test]
+    fn test_android_effect_parser_preserves_effect_entry_outside_mirror_window() {
+        let parser = AndroidEffectParser::new();
+        let source = r#"[ 09-16 15:22:12.474 17994:22341 I/         ]
+## 2026-09-16 15:22:12 [Shared.cpp:1] info ## [AE_TAG]same message"#;
+        let later_effect = r#"[ 09-16 15:22:12.575 17994:22341 I/Effect ]
+## 2026-09-16 15:22:12 [Shared.cpp:1] info ## [AE_TAG]same message"#;
+
+        assert!(parser.parse(source).is_some());
+        assert!(parser.parse(later_effect).is_some());
     }
 }

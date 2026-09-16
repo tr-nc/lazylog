@@ -4,7 +4,7 @@ use std::process::Command as StdCommand;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::runtime::Runtime;
 
@@ -13,6 +13,13 @@ pub struct AndroidDeviceInfo {
     pub serial: String,
     pub name: String,
     pub product: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AndroidAppState {
+    ProcessPresent,
+    NoProcess,
+    NotInstalled,
 }
 
 fn parse_connected_devices(output: &str) -> Vec<AndroidDeviceInfo> {
@@ -67,6 +74,90 @@ pub fn default_device_serial() -> Result<String> {
         .next()
         .map(|device| device.serial)
         .ok_or_else(|| anyhow!("No connected Android device was found"))
+}
+
+fn adb_shell_output(device: &str, args: &[&str]) -> Result<std::process::Output> {
+    StdCommand::new("adb")
+        .args(["-s", device, "shell"])
+        .args(args)
+        .output()
+        .map_err(Into::into)
+}
+
+fn command_failure(status_success: bool, stderr: &[u8]) -> Option<String> {
+    let stderr = String::from_utf8_lossy(stderr).trim().to_string();
+    (!status_success && !stderr.is_empty()).then_some(stderr)
+}
+
+/// Inspect installation and process presence for packages on one connected device.
+/// These ADB queries are read-only and do not launch or stop an App.
+pub fn app_states(device: &str, package_names: &[&str]) -> Result<Vec<AndroidAppState>> {
+    package_names
+        .iter()
+        .map(|package_name| {
+            let installed_output = adb_shell_output(device, &["pm", "path", package_name])?;
+            if let Some(error) =
+                command_failure(installed_output.status.success(), &installed_output.stderr)
+            {
+                return Err(anyhow!(
+                    "adb package query failed for {package_name} on {device}: {error}"
+                ));
+            }
+            let installed = installed_output.status.success()
+                && String::from_utf8_lossy(&installed_output.stdout)
+                    .lines()
+                    .any(|line| line.trim_start().starts_with("package:"));
+            if !installed {
+                return Ok(AndroidAppState::NotInstalled);
+            }
+
+            let process_output = adb_shell_output(device, &["pidof", package_name])?;
+            if let Some(error) =
+                command_failure(process_output.status.success(), &process_output.stderr)
+            {
+                return Err(anyhow!(
+                    "adb process query failed for {package_name} on {device}: {error}"
+                ));
+            }
+            if process_output.status.success()
+                && !String::from_utf8_lossy(&process_output.stdout)
+                    .trim()
+                    .is_empty()
+            {
+                Ok(AndroidAppState::ProcessPresent)
+            } else {
+                Ok(AndroidAppState::NoProcess)
+            }
+        })
+        .collect()
+}
+
+async fn read_logcat_line<R>(
+    reader: &mut R,
+    buffer: &mut Vec<u8>,
+) -> std::io::Result<Option<String>>
+where
+    R: AsyncBufRead + Unpin,
+{
+    let bytes_read = reader.read_until(b'\n', buffer).await?;
+    if bytes_read == 0 && buffer.is_empty() {
+        return Ok(None);
+    }
+
+    if buffer.last() == Some(&b'\n') {
+        buffer.pop();
+    }
+    if buffer.last() == Some(&b'\r') {
+        buffer.pop();
+    }
+
+    let bytes = std::mem::take(buffer);
+    // One malformed device log must not tear down adb logcat and trigger a reconnect.
+    let line = match String::from_utf8(bytes) {
+        Ok(line) => line,
+        Err(error) => String::from_utf8_lossy(&error.into_bytes()).into_owned(),
+    };
+    Ok(Some(line))
 }
 
 /// log provider for Android device logs (adb logcat)
@@ -392,7 +483,8 @@ impl AndroidLogProvider {
                     Self::set_status(&provider_status, ProviderStatus::Connected);
 
                     let stdout = stdout.expect("Failed to get stdout");
-                    let mut reader = BufReader::new(stdout).lines();
+                    let mut reader = BufReader::new(stdout);
+                    let mut line_buffer = Vec::new();
 
                     // store the child process handle
                     if let Ok(mut child_opt) = child_process.lock() {
@@ -422,7 +514,7 @@ impl AndroidLogProvider {
                         // read next line with a timeout approach
                         match tokio::time::timeout(
                             std::time::Duration::from_millis(100),
-                            reader.next_line(),
+                            read_logcat_line(&mut reader, &mut line_buffer),
                         )
                         .await
                         {
@@ -550,5 +642,35 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn logcat_reader_survives_invalid_utf8_and_reaches_following_line() {
+        let input = &b"first\xffline\nsecond line\n"[..];
+        let mut reader = BufReader::new(input);
+        let mut buffer = Vec::new();
+
+        assert_eq!(
+            read_logcat_line(&mut reader, &mut buffer).await.unwrap(),
+            Some("first\u{fffd}line".to_string())
+        );
+        assert_eq!(
+            read_logcat_line(&mut reader, &mut buffer).await.unwrap(),
+            Some("second line".to_string())
+        );
+        assert_eq!(
+            read_logcat_line(&mut reader, &mut buffer).await.unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn command_failure_distinguishes_absence_from_adb_errors() {
+        assert_eq!(command_failure(false, b""), None);
+        assert_eq!(
+            command_failure(false, b"device offline").as_deref(),
+            Some("device offline")
+        );
+        assert_eq!(command_failure(true, b"ignored warning"), None);
     }
 }

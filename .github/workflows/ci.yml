@@ -4,7 +4,7 @@ on:
   push:
     branches: ["main"]
     tags: ["v*"]
-  workflow_dispatch: # <-- Added this to allow manual triggering
+  workflow_dispatch: # Run validation manually; publishing remains tag-only.
 
 env:
   CARGO_TERM_COLOR: always
@@ -15,39 +15,53 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - name: Build
-        run: cargo build --verbose
-      - name: Test
-        run: cargo test --verbose
+      - name: Check formatting
+        run: cargo fmt --all --check
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Build release
+        run: cargo build --release --workspace --locked --verbose
+      - name: Test release
+        run: cargo test --release --workspace --locked --verbose
+
+  msrv:
+    name: Rust 1.88 minimum
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust 1.88
+        run: rustup toolchain install 1.88.0 --profile minimal
+      - name: Check workspace with Rust 1.88
+        run: cargo +1.88.0 check --workspace --all-targets --locked
 
   release:
     runs-on: macos-latest
-    needs: check
-    # Update the condition to allow workflow_dispatch to run the release job
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    needs: [check, msrv]
+    if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
 
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Extract version from tag
-        id: version
+
+      - name: Verify tag matches Cargo version
         run: |
-          # If triggered manually, GITHUB_REF might be a branch or tag. 
-          # This ensures we strip 'refs/tags/v' or 'refs/heads/' to get a clean name.
-          VERSION=${GITHUB_REF#refs/tags/v}
-          VERSION=${VERSION#refs/heads/}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          CARGO_VERSION="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json, sys; print(next(package["version"] for package in json.load(sys.stdin)["packages"] if package["name"] == "lazylog"))')"
+          test "$TAG_VERSION" = "$CARGO_VERSION" || {
+            echo "Tag version $TAG_VERSION does not match Cargo version $CARGO_VERSION" >&2
+            exit 1
+          }
+
       - name: Build release
-        run: cargo build --release --verbose
-        
+        run: cargo build --release --locked --verbose
+
       - name: Archive binary (Preserves +x permission)
         run: |
           cd target/release
           tar -czvf lazylog-macos.tar.gz lazylog
-          
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
@@ -62,7 +76,7 @@ jobs:
     needs: release # Wait for the release job to finish uploading the tarball
     runs-on: ubuntu-latest # This action requires a Linux runner
     # Only run this if a tag was pushed (we don't want to update Homebrew on manual branch builds)
-    if: startsWith(github.ref, 'refs/tags/') 
+    if: startsWith(github.ref, 'refs/tags/')
     
     steps:
       - name: Bump Homebrew formula

@@ -2,6 +2,7 @@
 name = "lazylog-ios"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 
 [dependencies]
@@ -13,6 +14,7 @@ lazylog-parser = { path = "../lazylog-parser" }
 anyhow.workspace = true
 lazy_static.workspace = true
 log.workspace = true
+libc.workspace = true
 regex.workspace = true
 serde_json = "1.0"
 

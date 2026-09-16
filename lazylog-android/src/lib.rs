@@ -3,5 +3,6 @@ mod provider;
 
 pub use parser::{AndroidEffectParser, AndroidParser};
 pub use provider::{
-    AndroidDeviceInfo, AndroidLogProvider, connected_devices, default_device_serial,
+    AndroidAppState, AndroidDeviceInfo, AndroidLogProvider, app_states, connected_devices,
+    default_device_serial,
 };

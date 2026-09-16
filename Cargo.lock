@@ -687,7 +687,7 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
 name = "lazylog"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "crossterm 0.29.0",
@@ -697,13 +697,15 @@ dependencies = [
  "lazylog-framework",
  "lazylog-ios",
  "ratatui",
+ "serde",
+ "serde_json",
  "signal-hook",
  "unicode-width 0.2.0",
 ]
 
 [[package]]
 name = "lazylog-android"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -716,7 +718,7 @@ dependencies = [
 
 [[package]]
 name = "lazylog-dyeh"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -732,7 +734,7 @@ dependencies = [
 
 [[package]]
 name = "lazylog-framework"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "arboard",
@@ -755,12 +757,13 @@ dependencies = [
 
 [[package]]
 name = "lazylog-ios"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "lazy_static",
  "lazylog-framework",
  "lazylog-parser",
+ "libc",
  "log",
  "regex",
  "serde_json",
@@ -769,7 +772,7 @@ dependencies = [
 
 [[package]]
 name = "lazylog-parser"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "lazy_static",
  "lazylog-framework",
@@ -1285,6 +1288,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd6c24dee235d0da097043389623fb913daddf92c76e9f5a1db88607a0bcbd1d"
 dependencies = [
  "serde_core",
+ "serde_derive",
 ]
 
 [[package]]

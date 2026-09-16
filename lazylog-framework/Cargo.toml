@@ -2,6 +2,7 @@
 name = "lazylog-framework"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 description = "A framework for building terminal-based log viewers with vim-like navigation"
 license = "MIT OR Apache-2.0"
