@@ -1,7 +1,7 @@
 ---
 name: lazylog-headless-debugger
 description: Uses lazylog agent and headless modes for non-interactive log debugging across all supported providers.
-version: 0.3.0
+version: 0.3.1
 ---
 
 # Lazylog Agent Debugger
@@ -14,7 +14,6 @@ Use this skill when you want to debug logs with `lazylog` in a non-interactive w
 - Use `--agent` for coding-agent-driven debugging with an empty stdout and a complete temporary capture file.
 - Use `--headless` when an unbounded stdout stream is explicitly needed by a script.
 - Stream logs from any supported provider directly to the terminal.
-- Narrow TUI or headless output with `--filter` when needed.
 
 ## Installation
 
@@ -118,9 +117,8 @@ attachment. A missing bundle ID is shown as not installed and cannot be confirme
   `lazylog/agent-captures`
 - agent mode reports the capture path, status changes, and final statistics on stderr
 - agent mode never writes log content to stdout
-- agent mode captures every parsed item and rejects `--filter`; search the capture file instead
+- agent mode captures every parsed item; search the capture file directly when narrowing is needed
 - headless mode remains an unbounded colorized stream until interrupted
-- headless `--filter` is applied before printing
 - each matching headless item is printed using full `raw_content`
 - agent captures are plain text; headless output is colorized by log level
 

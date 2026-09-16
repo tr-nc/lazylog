@@ -125,7 +125,7 @@ Agent mode behavior:
   `lazylog/agent-captures`
 - Prints only the capture path, status changes, and final statistics to stderr; stdout stays empty
 - Writes the complete parsed session without ANSI color codes
-- Does not accept `--filter`; search the resulting file with tools such as `rg` after or during capture
+- Captures every parsed item; search the resulting file with tools such as `rg` after or during capture
 - Stops and flushes cleanly on `Ctrl+C`, `SIGTERM`, or after `--duration`
 - Requires `--ios-app effectcam|douyin` in iOS mode; Agent mode never opens a picker
 
