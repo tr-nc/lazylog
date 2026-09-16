@@ -51,6 +51,30 @@ fn print_usage() {
     eprintln!("  --help, -h              Print this help message");
 }
 
+fn agent_usage() -> &'static str {
+    r#"Usage: lazylog --agent <PROVIDER> [OPTIONS]
+
+Providers:
+  --dyeh-preview          Use DYEH file-based log provider
+  --dyeh-editor           Use DYEH editor log provider
+  --ios                   Use iOS app-console provider [EFFECT MODE]
+  --android               Use Android log provider [EFFECT MODE]
+
+Options:
+  --ios-app <APP>         Required with --ios: effectcam or douyin
+  --duration <SECONDS>    Stop capture after the given duration
+  --help, -h              Print this help message
+
+Output:
+  All parsed logs go to a unique temporary file.
+  The capture path, status, and final statistics go to stderr; stdout stays empty.
+"#
+}
+
+fn print_agent_usage() {
+    eprint!("{}", agent_usage());
+}
+
 fn check_devicectl_available() -> io::Result<()> {
     if !Path::new("/usr/bin/script").is_file() {
         return Err(io::Error::new(
@@ -288,7 +312,7 @@ impl CliOptions {
             }
 
             if agent_requested && initial_filter.is_some() {
-                print_usage();
+                print_agent_usage();
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "--filter is not supported with --agent; capture all logs, then search the temporary capture file",
@@ -578,7 +602,11 @@ fn main() -> io::Result<()> {
     }
 
     if matches!(usage_option, UsageOptions::Help) {
-        print_usage();
+        if cli_options.agent.is_some() {
+            print_agent_usage();
+        } else {
+            print_usage();
+        }
         return Ok(());
     }
 
@@ -771,6 +799,32 @@ mod tests {
                     .contains("--filter is not supported with --agent")
             );
         }
+    }
+
+    #[test]
+    fn agent_help_exposes_only_agent_options() {
+        let usage = agent_usage();
+
+        assert!(usage.contains("lazylog --agent <PROVIDER>"));
+        assert!(usage.contains("--duration"));
+        assert!(usage.contains("stdout stays empty"));
+        assert!(!usage.contains("--filter"));
+        assert!(!usage.contains("--headless"));
+    }
+
+    #[test]
+    fn user_modes_keep_filter_support() {
+        let interactive = CliOptions::from_args(&args(&["--filter", "ERROR"])).unwrap();
+        assert_eq!(interactive.initial_filter.as_deref(), Some("ERROR"));
+
+        let headless = CliOptions::from_args(&args(&[
+            "--headless",
+            "--dyeh-preview",
+            "--filter",
+            "WARNING",
+        ]))
+        .unwrap();
+        assert_eq!(headless.initial_filter.as_deref(), Some("WARNING"));
     }
 
     #[test]
