@@ -128,10 +128,8 @@ fn install_stop_signals() -> io::Result<(Arc<AtomicBool>, SignalRegistrations)> 
     let mut registrations = SignalRegistrations(Vec::new());
 
     for signal in [SIGINT, SIGTERM] {
-        match flag::register(signal, stop.clone()) {
-            Ok(signal_id) => registrations.0.push(signal_id),
-            Err(error) => return Err(error),
-        }
+        let signal_id = flag::register(signal, stop.clone())?;
+        registrations.0.push(signal_id);
     }
 
     Ok((stop, registrations))
