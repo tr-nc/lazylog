@@ -833,6 +833,12 @@ fn render_list(
     frame.render_stateful_widget(list, area, &mut list_state);
 }
 
+fn provider_status_name(provider: Option<ProviderKind>) -> &'static str {
+    provider
+        .map(ProviderKind::mode_name)
+        .unwrap_or("选择 Provider")
+}
+
 fn draw_picker<B: Backend>(
     terminal: &mut Terminal<B>,
     state: &PickerState,
@@ -927,10 +933,7 @@ fn draw_picker<B: Backend>(
         };
         frame.render_widget(Paragraph::new(notice), notice_area);
 
-        let provider_name = state
-            .selected_provider
-            .map(ProviderKind::display_name)
-            .unwrap_or("选择 Provider");
+        let provider_name = provider_status_name(state.selected_provider);
         let mut status_bar = StatusBar::new()
             .add_status(
                 StatusGravity::Left,
@@ -1443,6 +1446,13 @@ mod tests {
                 Rect::new(29, 4, 3, 1),
             ]
         );
+    }
+
+    #[test]
+    fn picker_footer_uses_lowercase_provider_mode_names() {
+        assert_eq!(provider_status_name(Some(ProviderKind::Android)), "android");
+        assert_eq!(provider_status_name(Some(ProviderKind::Ios)), "ios");
+        assert_eq!(provider_status_name(None), "选择 Provider");
     }
 
     #[test]
