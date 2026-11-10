@@ -171,24 +171,6 @@ impl StatusBar {
         let (mid_spans, mid_len) = Self::build_gravity_spans(&self.mid_segments, sep);
         let (right_spans, right_len) = Self::build_gravity_spans(&self.right_segments, sep);
 
-        let mid_center_start = total_width.saturating_sub(mid_len) / 2;
-        let left_to_mid_padding = mid_center_start.saturating_sub(left_len);
-
-        let right_start = total_width.saturating_sub(right_len);
-        let mid_end = mid_center_start + mid_len;
-        let mid_to_right_padding = right_start.saturating_sub(mid_end);
-
-        let mut spans = vec![];
-        spans.extend(left_spans);
-        spans.push(Span::raw(" ".repeat(left_to_mid_padding)));
-
-        spans.extend(mid_spans);
-        spans.push(Span::raw(" ".repeat(mid_to_right_padding)));
-
-        spans.extend(right_spans);
-
-        let line = Line::from(spans);
-
         let mut base_style = Style::default();
         if let Some(bg) = self.bg_color {
             base_style = base_style.bg(bg);
@@ -197,7 +179,96 @@ impl StatusBar {
             base_style = base_style.patch(custom_style);
         }
 
-        let paragraph = Paragraph::new(line).style(base_style);
-        paragraph.render(area, buf);
+        buf.set_style(area, base_style);
+
+        // The center owns its screen-relative position. Side statuses may be
+        // clipped, but must never push a notification off-center or off-screen.
+        let mid_width = mid_len.min(total_width);
+        let mid_start = (total_width - mid_width) / 2;
+        let mid_end = mid_start + mid_width;
+        let right_start = if mid_width > 0 {
+            total_width
+                .saturating_sub(right_len)
+                .max((mid_end + usize::from(mid_end < total_width)).min(total_width))
+        } else {
+            total_width.saturating_sub(right_len)
+        };
+        let left_limit = if mid_width > 0 {
+            mid_start
+        } else {
+            right_start
+        };
+        let left_width =
+            left_len.min(left_limit.saturating_sub(usize::from(mid_width > 0 || right_len > 0)));
+
+        for (spans, start, width) in [
+            (left_spans, 0, left_width),
+            (mid_spans, mid_start, mid_width),
+            (right_spans, right_start, total_width - right_start),
+        ] {
+            if width > 0 {
+                Paragraph::new(Line::from(spans)).style(base_style).render(
+                    Rect::new(area.x + start as u16, area.y, width as u16, area.height),
+                    buf,
+                );
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn center_stays_visible_at_narrow_widths_and_nonzero_origins() {
+        for width in [0, 1, 12, 40, 120] {
+            let area = Rect::new(3, 2, width, 1);
+            let mut buf = Buffer::empty(area);
+            let message = "Exported: ~/Downloads/lazylog-abcdef.log";
+            StatusBar::new()
+                .add_status_plain(StatusGravity::Left, "a very long provider status")
+                .add_status_plain(StatusGravity::Mid, message)
+                .add_status_plain(StatusGravity::Right, "20 / 20")
+                .render(area, &mut buf);
+            let visible_width = message.width().min(width as usize);
+            let start = (width as usize - visible_width) / 2;
+            let rendered: String = (start..start + visible_width)
+                .map(|x| buf[(area.x + x as u16, area.y)].symbol())
+                .collect();
+            assert_eq!(rendered, &message[..visible_width]);
+        }
+    }
+
+    #[test]
+    fn side_statuses_keep_their_edges_without_a_center_message() {
+        let area = Rect::new(0, 0, 20, 1);
+        let mut buf = Buffer::empty(area);
+        StatusBar::new()
+            .add_status_plain(StatusGravity::Left, "left")
+            .add_status_plain(StatusGravity::Right, "right")
+            .render(area, &mut buf);
+        let rendered: String = (0..20).map(|x| buf[(x, 0)].symbol()).collect();
+        assert_eq!(rendered, "left           right");
+    }
+
+    #[test]
+    fn long_center_message_is_centered_without_being_pushed_by_side_statuses() {
+        let area = Rect::new(0, 0, 100, 1);
+        let mut buf = Buffer::empty(area);
+        let message = "Exported 20 logs: /Users/test/Downloads/lazylog-0123456789abcdef.log";
+        StatusBar::new()
+            .add_status_plain(
+                StatusGravity::Left,
+                "ios devicectl app-console (抖音开发版) | connected | wrap on",
+            )
+            .add_status_plain(StatusGravity::Mid, message)
+            .add_status_plain(StatusGravity::Right, "20 / 20")
+            .render(area, &mut buf);
+        let start = (area.width as usize - message.width()) / 2;
+        let rendered: String = (start..start + message.width())
+            .map(|x| buf[(x as u16, 0)].symbol())
+            .collect();
+        assert_eq!(rendered, message);
     }
 }
