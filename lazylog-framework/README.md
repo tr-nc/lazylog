@@ -314,6 +314,7 @@ start_with_desc(&mut terminal, provider, desc)?;
 | `v` | Toggle visual mode |
 | `y` | Copy current log to clipboard |
 | `a` | Copy all displayed logs to clipboard |
+| `e` | Export all displayed logs to a unique `.log` file in `~/Downloads` |
 | `c` | Clear all logs |
 | `w` | Toggle text wrapping |
 | `[` | Decrease detail level |

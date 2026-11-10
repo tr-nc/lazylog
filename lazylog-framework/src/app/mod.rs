@@ -31,6 +31,7 @@ use std::{
 };
 
 mod events;
+mod export;
 mod render;
 mod scrolling;
 mod selection;

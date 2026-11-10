@@ -425,6 +425,10 @@ impl App {
                 }
                 Ok(())
             }
+            KeyCode::Char('e') => {
+                self.export_displayed_logs();
+                Ok(())
+            }
             KeyCode::Char('1') => {
                 self.set_hard_focused_block(self.logs_block.id());
                 Ok(())
@@ -538,7 +542,7 @@ impl App {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::{
         AppDesc, AppExitReason,
@@ -547,7 +551,7 @@ mod tests {
     use crossterm::event::KeyModifiers;
     use std::sync::Arc;
 
-    struct NoopProvider;
+    pub(in crate::app) struct NoopProvider;
 
     impl LogProvider for NoopProvider {
         fn start(&mut self) -> Result<()> {
@@ -563,7 +567,7 @@ mod tests {
         }
     }
 
-    struct NoopParser;
+    pub(in crate::app) struct NoopParser;
 
     impl LogParser for NoopParser {
         fn parse(&self, _raw_log: &str) -> Option<LogItem> {

@@ -741,6 +741,7 @@ dependencies = [
  "chrono",
  "color-eyre",
  "crossterm 0.29.0",
+ "dirs",
  "itertools 0.14.0",
  "lazy_static",
  "log",

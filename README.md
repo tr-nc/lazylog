@@ -242,6 +242,7 @@ invocation; live providers do not necessarily include logs from before startup.
 | `v`                  | Toggle visual mode                                 |
 | `y`                  | Yank (copy) selected log item(s) to clipboard      |
 | `a`                  | Yank (copy) all displayed logs to clipboard        |
+| `e` | Export all displayed logs to a unique `.log` file in `~/Downloads` |
 | `c`                  | Clear all logs                                     |
 | `w`                  | Toggle text wrapping                               |
 | `m`                  | Toggle mouse capture (disable to select/copy text) |

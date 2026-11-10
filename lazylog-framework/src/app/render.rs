@@ -215,6 +215,7 @@ impl App {
             Line::from("  v        - Toggle visual mode"),
             Line::from("  y        - Copy selected log(s) to clipboard"),
             Line::from("  a        - Copy all displayed logs to clipboard"),
+            Line::from("  e        - Export displayed logs to ~/Downloads (*.log)"),
             Line::from("  c        - Clear all logs"),
             Line::from("  w        - Toggle text wrapping"),
             Line::from("  m        - Toggle mouse capture (select text when off)"),
