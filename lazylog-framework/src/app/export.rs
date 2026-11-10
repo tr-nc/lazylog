@@ -34,12 +34,9 @@ impl App {
     fn export_displayed_logs_to(&self, directory: &Path) -> Result<PathBuf> {
         fs::create_dir_all(directory)
             .with_context(|| format!("Could not create {}", directory.display()))?;
-        let path = directory.join(format!("lazylog-{}.log", uuid::Uuid::new_v4().simple()));
-        let file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)
-            .with_context(|| format!("Could not create {}", path.display()))?;
+        let (path, file) = create_export_file(directory, || {
+            uuid::Uuid::new_v4().simple().to_string()[..6].to_string()
+        })?;
         let result = (|| -> std::io::Result<()> {
             let mut writer = BufWriter::new(file);
             // Match copy-all's parser formatting and order without building one giant string.
@@ -61,6 +58,22 @@ impl App {
             return Err(error).with_context(|| format!("Could not write {}", path.display()));
         }
         Ok(path)
+    }
+}
+
+fn create_export_file(
+    directory: &Path,
+    mut next_suffix: impl FnMut() -> String,
+) -> Result<(PathBuf, fs::File)> {
+    loop {
+        let path = directory.join(format!("lazylog-{}.log", next_suffix()));
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => return Ok((path, file)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(error).with_context(|| format!("Could not create {}", path.display()));
+            }
+        }
     }
 }
 
@@ -98,6 +111,14 @@ mod tests {
         let second = app.export_displayed_logs_to(&directory).unwrap();
         assert_ne!(first, second);
         assert_eq!(first.extension().unwrap(), "log");
+        let filename = first.file_name().unwrap().to_str().unwrap();
+        let suffix = filename
+            .strip_prefix("lazylog-")
+            .unwrap()
+            .strip_suffix(".log")
+            .unwrap();
+        assert_eq!(suffix.len(), 6);
+        assert!(suffix.chars().all(|c| c.is_ascii_hexdigit()));
         assert_eq!(fs::read_to_string(&first).unwrap(), expected);
         assert_eq!(fs::read_to_string(&second).unwrap(), expected);
 
@@ -136,6 +157,21 @@ mod tests {
             "No displayed logs to export"
         );
         app.cleanup();
+    }
+
+    #[test]
+    fn filename_collision_retries_without_overwriting_existing_export() {
+        let directory = std::env::temp_dir().join(format!("lazylog-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&directory).unwrap();
+        let existing = directory.join("lazylog-abcdef.log");
+        fs::write(&existing, "existing export").unwrap();
+        let mut suffixes = ["abcdef", "123456"].into_iter();
+        let (path, file) =
+            create_export_file(&directory, || suffixes.next().unwrap().to_string()).unwrap();
+        assert_eq!(path.file_name().unwrap(), "lazylog-123456.log");
+        assert_eq!(fs::read_to_string(existing).unwrap(), "existing export");
+        drop(file);
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
